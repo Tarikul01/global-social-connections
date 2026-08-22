@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	once sync.Once
+	once        sync.Once
 	application *app.App
-	initErr error
+	initErr     error
 )
 
 func getApp() (*app.App, error) {
@@ -27,7 +27,9 @@ func getApp() (*app.App, error) {
 	return application, initErr
 }
 
-// Handler is the Vercel serverless entry point for all routes.
+// Handler is the single Vercel serverless entrypoint.
+// All traffic (HTML UI and /api/v1 JSON) is handled by one Gin engine
+// built via router.SetupRouter inside app.New.
 func Handler(w http.ResponseWriter, r *http.Request) {
 	a, err := getApp()
 	if err != nil {

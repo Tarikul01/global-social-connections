@@ -24,6 +24,22 @@ Folder: `Projects/GSC` · App module: `github.com/findneighbour/findneighbour`
 - **Maps:** OpenStreetMap (Leaflet) — no API key required
 - **Deploy:** Vercel serverless Go entry (`api/index.go`) or `cmd/server` locally
 
+## Dual surface: Web UI + Mobile API
+
+One Gin engine (`internal/router.SetupRouter`) serves both:
+
+| Surface | Base URL | Content-Type |
+|---------|----------|--------------|
+| Web MVC / HTMX | `https://globalconnection.vercel.app/` | HTML |
+| Mobile REST | `https://globalconnection.vercel.app/api/v1/...` | JSON (+ CORS) |
+
+Shared `UserService` backs both HTML (`/explore`) and JSON (`/api/v1/users/nearby`, `/api/v1/users/:id`) — same PostGIS queries.
+
+```bash
+# Example mobile call
+curl "https://globalconnection.vercel.app/api/v1/users/nearby?lat=23.81&lng=90.41&radius_km=10"
+```
+
 ## Quick Start (Local)
 
 ```bash

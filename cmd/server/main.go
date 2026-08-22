@@ -28,7 +28,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.AppPort,
-		Handler:      application.Router,
+		Handler:      application.Router, // from router.SetupRouter (Web + /api/v1)
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

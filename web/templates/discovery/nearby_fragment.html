@@ -1,0 +1,12 @@
+{{define "discovery/nearby_fragment.html"}}
+<div id="nearby-list" class="grid md:grid-cols-2 gap-4">
+  {{range .Users}}
+  <a href="/users/{{.Username}}" class="block p-4 bg-white rounded-xl border hover:border-indigo-300">
+    <div class="font-semibold">{{.FullName}}</div>
+    <div class="text-sm text-slate-500">{{if .Profession}}{{.Profession}}{{else}}Professional{{end}} · {{.DistanceKm}} km · {{if .Online}}Online{{else}}Offline{{end}}</div>
+  </a>
+  {{else}}
+  <p class="text-slate-500 col-span-2">No people nearby yet. Try a wider radius.</p>
+  {{end}}
+</div>
+{{end}}

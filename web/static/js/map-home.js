@@ -84,15 +84,17 @@
     if (statusFilter) params.set('status', statusFilter);
     if (searchQ) params.set('q', searchQ);
 
-    fetch('/api/map/people?' + params.toString())
+    fetch('/api/v1/users/nearby?' + params.toString())
       .then((r) => r.json())
-      .then((data) => {
-        renderMarkers(data.users || []);
-        renderList(data.users || []);
+      .then((body) => {
+        const data = body.data || body;
+        const users = data.users || [];
+        renderMarkers(users);
+        renderList(users);
         document.getElementById('people-count').textContent = data.total || 0;
         document.getElementById('online-count').textContent = data.online || 0;
         document.getElementById('footer-stats').textContent =
-          (data.users || []).length + ' people in this area · ' + (data.total || 0) + ' worldwide';
+          users.length + ' people in this area · ' + (data.total || 0) + ' worldwide';
       })
       .catch(() => {});
   }

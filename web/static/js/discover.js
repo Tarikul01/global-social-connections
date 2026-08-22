@@ -33,9 +33,12 @@ function discoverApp() {
     },
     loadNearby() {
       const radius = document.getElementById('radius').value;
-      fetch(`/api/discover/nearby?lat=${this.lat}&lng=${this.lng}&radius_km=${radius}`)
+      fetch(`/api/v1/users/nearby?lat=${this.lat}&lng=${this.lng}&radius_km=${radius}`)
         .then((r) => r.json())
-        .then((data) => this.renderUsers(data.users || []));
+        .then((body) => {
+          const users = (body.data && body.data.users) || body.users || [];
+          this.renderUsers(users);
+        });
     },
     renderUsers(users) {
       this.markerLayer.clearLayers();
