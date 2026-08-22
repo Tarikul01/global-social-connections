@@ -1,0 +1,23 @@
+{{define "connections/requests.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<h1 class="text-2xl font-bold mb-6">Connection Requests</h1>
+<div class="space-y-4">
+  {{range .Requests}}
+  <div class="p-4 bg-white rounded-xl border flex justify-between items-center">
+    <div><div class="font-semibold">{{.RequesterName}}</div>{{if .Message}}<p class="text-sm text-slate-500">{{.Message}}</p>{{end}}</div>
+    <div class="flex gap-2">
+      <form method="POST" action="/connections/{{.ID}}/accept"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="bg-green-600 text-white px-3 py-1 rounded-lg text-sm">Accept</button></form>
+      <form method="POST" action="/connections/{{.ID}}/reject"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><button class="border px-3 py-1 rounded-lg text-sm">Reject</button></form>
+    </div>
+  </div>
+  {{else}}<p class="text-slate-500">No pending requests.</p>{{end}}
+</div>
+</main>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,28 @@
+{{define "profile/dashboard.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<h1 class="text-2xl font-bold mb-4">Dashboard</h1>
+<p class="text-slate-600 mb-6">Welcome back{{if .Profile}}, {{.Profile.FullName}}{{end}}!</p>
+<div class="grid md:grid-cols-3 gap-4">
+  <a href="/discover" class="p-6 bg-white rounded-xl border hover:border-indigo-300">
+    <h2 class="font-semibold">Discover Nearby</h2>
+    <p class="text-sm text-slate-500">Find professionals around you</p>
+  </a>
+  <a href="/events" class="p-6 bg-white rounded-xl border hover:border-indigo-300">
+    <h2 class="font-semibold">Events</h2>
+    <p class="text-sm text-slate-500">Browse and create meetups</p>
+  </a>
+  <a href="/messages" class="p-6 bg-white rounded-xl border hover:border-indigo-300">
+    <h2 class="font-semibold">Messages</h2>
+    <p class="text-sm text-slate-500">Chat with connections</p>
+  </a>
+</div>
+</main>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
+{{end}}

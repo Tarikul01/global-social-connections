@@ -1,0 +1,33 @@
+{{define "settings/location.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<h1 class="text-2xl font-bold mb-6">Location & Privacy</h1>
+<form method="POST" action="/settings/location" class="bg-white rounded-xl border p-6 space-y-4 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div><label class="block text-sm font-medium mb-1">Sharing Mode</label>
+    <select name="sharing_mode" class="w-full border rounded-lg px-3 py-2">
+      <option value="hidden" {{if eq .Settings.SharingMode "hidden"}}selected{{end}}>Hidden</option>
+      <option value="city_only" {{if eq .Settings.SharingMode "city_only"}}selected{{end}}>City only</option>
+      <option value="approximate" {{if eq .Settings.SharingMode "approximate"}}selected{{end}}>Approximate</option>
+      <option value="discoverable" {{if eq .Settings.SharingMode "discoverable"}}selected{{end}}>Discoverable</option>
+    </select>
+  </div>
+  <label class="flex items-center gap-2"><input type="checkbox" name="discovery_enabled" {{if .Settings.DiscoveryEnabled}}checked{{end}}> Enable discovery</label>
+  <label class="flex items-center gap-2"><input type="checkbox" name="live_sharing_enabled" {{if .Settings.LiveSharingEnabled}}checked{{end}}> Allow live location</label>
+  <div><label class="block text-sm mb-1">Live scope</label>
+    <select name="live_sharing_scope" class="w-full border rounded-lg px-3 py-2">
+      <option value="none">None</option>
+      <option value="connections" {{if eq .Settings.LiveSharingScope "connections"}}selected{{end}}>Connections</option>
+      <option value="events" {{if eq .Settings.LiveSharingScope "events"}}selected{{end}}>Events</option>
+    </select>
+  </div>
+  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button>
+</form>
+</main>
+</body>
+</html>
+{{end}}

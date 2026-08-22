@@ -1,0 +1,49 @@
+{{define "chat/show.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-3xl mx-auto px-4 py-8">
+<div class="bg-white rounded-xl border flex flex-col h-[70vh]">
+  <div id="messages" class="flex-1 overflow-y-auto p-4 space-y-3">
+    {{range .Messages}}
+    <div class="flex {{if eq .SenderID $.CurrentUserID}}justify-end{{end}}">
+      <div class="max-w-xs px-3 py-2 rounded-xl {{if eq .SenderID $.CurrentUserID}}bg-indigo-600 text-white{{else}}bg-slate-100{{end}}">{{.Content}}</div>
+    </div>
+    {{end}}
+  </div>
+  <form id="chat-form" class="border-t p-4 flex gap-2">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input id="msg-input" name="content" required placeholder="Type a message..." class="flex-1 border rounded-lg px-3 py-2">
+    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Send</button>
+  </form>
+</div>
+</main>
+<script>
+const convId = '{{.ConversationID}}';
+const myId = '{{.CurrentUserID}}';
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = document.getElementById('msg-input');
+  const fd = new FormData();
+  fd.append('content', input.value);
+  fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
+  const r = await fetch('/api/conversations/' + convId + '/messages', { method: 'POST', body: fd });
+  if (r.ok) { input.value = ''; loadMessages(); }
+});
+async function loadMessages() {
+  const r = await fetch('/api/conversations/' + convId + '/messages');
+  const data = await r.json();
+  const box = document.getElementById('messages');
+  box.innerHTML = (data.messages || []).map(m => `
+    <div class="flex ${m.sender_id === myId ? 'justify-end' : ''}">
+      <div class="max-w-xs px-3 py-2 rounded-xl ${m.sender_id === myId ? 'bg-indigo-600 text-white' : 'bg-slate-100'}">${m.content}</div>
+    </div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+setInterval(loadMessages, 3000);
+</script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,27 @@
+{{define "profile/edit.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<h1 class="text-2xl font-bold mb-6">Edit Profile</h1>
+{{if .Error}}<p class="text-red-600 mb-4">{{.Error}}</p>{{end}}
+<form method="POST" action="/profile" class="bg-white rounded-xl border p-6 space-y-4 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div><label class="block text-sm font-medium mb-1">Full Name</label><input name="full_name" value="{{.Profile.FullName}}" required class="w-full border rounded-lg px-3 py-2"></div>
+  <div><label class="block text-sm font-medium mb-1">Bio</label><textarea name="bio" rows="3" class="w-full border rounded-lg px-3 py-2">{{.Profile.Bio}}</textarea></div>
+  <div><label class="block text-sm font-medium mb-1">Profession</label>
+    <select name="profession_id" class="w-full border rounded-lg px-3 py-2">
+      <option value="">Select...</option>
+      {{range .Professions}}<option value="{{.ID}}" {{if $.Profile.ProfessionID}}{{if eq $.Profile.ProfessionID.String .ID.String}}selected{{end}}{{end}}>{{.Name}}</option>{{end}}
+    </select>
+  </div>
+  <div><label class="block text-sm font-medium mb-1">Tag</label><input name="tags" placeholder="#Go" class="w-full border rounded-lg px-3 py-2"></div>
+  <div><label class="block text-sm font-medium mb-1">Skill</label><input name="skills" class="w-full border rounded-lg px-3 py-2"></div>
+  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button>
+</form>
+</main>
+</body>
+</html>
+{{end}}

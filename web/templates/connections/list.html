@@ -1,0 +1,17 @@
+{{define "connections/list.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<h1 class="text-2xl font-bold mb-6">Connections</h1>
+<div class="space-y-2">
+  {{range .Connections}}
+  <div class="p-4 bg-white rounded-xl border"><span class="font-semibold">{{.RequesterName}} ↔ {{.RecipientName}}</span></div>
+  {{else}}<p class="text-slate-500">No connections yet.</p>{{end}}
+</div>
+</main>
+</body>
+</html>
+{{end}}

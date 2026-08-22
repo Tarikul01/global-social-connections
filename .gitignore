@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+/tmp/
+*.exe
+
+# Environment
+.env
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Vercel
+.vercel

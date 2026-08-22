@@ -1,0 +1,98 @@
+{{define "landing.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FindNeighbour · Global Social Connections</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { position: absolute; inset: 0; z-index: 0; }
+    .person-marker {
+      width: 40px; height: 40px; border-radius: 9999px;
+      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: #fff; position: relative;
+      background: #6366f1; cursor: pointer;
+    }
+    .person-marker.offline { background: #64748b; opacity: .85; }
+    .person-marker .dot {
+      position: absolute; right: -1px; bottom: -1px;
+      width: 12px; height: 12px; border-radius: 9999px;
+      border: 2px solid #fff; background: #22c55e;
+    }
+    .person-marker.offline .dot { background: #94a3b8; }
+    .bottom-sheet {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 16px; width: min(720px, calc(100% - 24px));
+      background: rgba(15, 23, 42, 0.92); color: #fff;
+      border-radius: 18px; backdrop-filter: blur(10px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.35); z-index: 1000;
+    }
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+<body class="overflow-hidden bg-slate-950">
+  <div id="map"></div>
+
+  <header class="absolute top-0 inset-x-0 z-[1000] flex items-center justify-between px-4 py-3 pointer-events-none">
+    <div class="pointer-events-auto bg-slate-900/80 text-white px-4 py-2 rounded-full shadow">
+      <span class="font-semibold tracking-tight">FindNeighbour</span>
+      <span class="text-white/50 text-xs ml-2">GSC · Global Social Connections</span>
+    </div>
+    <div class="pointer-events-auto flex gap-2">
+      {{if .LoggedIn}}
+        <a href="/settings/location" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
+        <a href="/profile" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Profile</a>
+      {{else}}
+        <a href="/auth/login?next=/settings/location" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
+        <a href="/auth/login?next=/" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Login</a>
+      {{end}}
+    </div>
+  </header>
+
+  <div class="absolute right-3 top-20 z-[1000] flex flex-col gap-2">
+    <button id="zoom-in" class="w-10 h-10 rounded-full bg-indigo-600 text-white shadow text-xl">+</button>
+    <button id="zoom-out" class="w-10 h-10 rounded-full bg-indigo-600 text-white shadow text-xl">−</button>
+    <button id="locate-me" class="w-10 h-10 rounded-full bg-slate-900/80 text-white shadow text-sm" title="My location">◎</button>
+  </div>
+
+  <section class="bottom-sheet" id="sheet">
+    <div class="flex gap-2 p-3 border-b border-white/10">
+      <button data-tab="people" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-indigo-600">People (<span id="people-count">{{.TotalPeople}}</span>)</button>
+      <button data-tab="online" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-white/10">Online (<span id="online-count">{{.OnlinePeople}}</span>)</button>
+      <button data-tab="offline" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-white/10">Offline</button>
+    </div>
+    <div class="p-3 flex gap-2">
+      <input id="search" type="search" placeholder="Search people, cities..."
+             class="flex-1 rounded-xl bg-white/10 border border-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40">
+      <select id="status-filter" class="rounded-xl bg-white/10 border border-white/10 px-3 py-2 text-sm">
+        <option value="">All</option>
+        <option value="online">Online</option>
+        <option value="offline">Offline</option>
+      </select>
+    </div>
+    <div id="people-list" class="max-h-48 overflow-y-auto px-3 pb-3 space-y-2"></div>
+    <div class="px-4 py-2 text-xs text-white/60 flex justify-between border-t border-white/10">
+      <span id="footer-stats">{{.TotalPeople}} people found worldwide</span>
+      <span>{{.OnlinePeople}} online now</span>
+    </div>
+  </section>
+
+  <script>
+    window.FN_MAP = {
+      loggedIn: {{if .LoggedIn}}true{{else}}false{{end}},
+      total: {{.TotalPeople}},
+      online: {{.OnlinePeople}}
+    };
+  </script>
+  <script src="/static/js/map-home.js"></script>
+</body>
+</html>
+{{end}}

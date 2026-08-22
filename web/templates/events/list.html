@@ -1,0 +1,23 @@
+{{define "events/list.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<div class="flex justify-between items-center mb-6">
+  <h1 class="text-2xl font-bold">Events</h1>
+  <a href="/events/new" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Create Event</a>
+</div>
+<div class="space-y-4">
+  {{range .Events}}
+  <a href="/events/{{.ID}}" class="block p-4 bg-white rounded-xl border hover:border-indigo-300">
+    <h2 class="font-semibold">{{.Title}}</h2>
+    <p class="text-sm text-slate-500">{{.EventDate.Format "Jan 2, 2006"}} · {{.LocationName}} · {{.MemberCount}} members</p>
+  </a>
+  {{else}}<p class="text-slate-500">No events yet.</p>{{end}}
+</div>
+</main>
+</body>
+</html>
+{{end}}

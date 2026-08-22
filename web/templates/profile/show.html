@@ -1,0 +1,41 @@
+{{define "profile/show.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8">
+<div class="bg-white rounded-2xl border p-6">
+  <div class="flex justify-between items-start">
+    <div>
+      <h1 class="text-2xl font-bold">{{.Profile.FullName}}</h1>
+      <p class="text-slate-500">@{{.Profile.Username}}</p>
+      {{if .Profile.ProfessionName}}<p class="text-indigo-600 mt-1">{{.Profile.ProfessionName}}</p>{{end}}
+    </div>
+    {{if .IsOwn}}
+    <a href="/profile/edit" class="text-sm bg-slate-100 px-3 py-1 rounded-lg">Edit</a>
+    {{else}}
+    <div class="flex gap-2">
+      <form method="POST" action="/users/{{.Profile.UserID}}/follow">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="text-sm bg-indigo-600 text-white px-3 py-1 rounded-lg">Follow</button>
+      </form>
+      <form method="POST" action="/users/{{.Profile.UserID}}/connect">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="text-sm border px-3 py-1 rounded-lg">Connect</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+  {{if .Profile.Bio}}<p class="mt-4">{{.Profile.Bio}}</p>{{end}}
+  {{if .Tags}}
+  <div class="mt-4 flex flex-wrap gap-2">
+    {{range .Tags}}<span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">#{{.Name}}</span>{{end}}
+  </div>
+  {{end}}
+</div>
+</main>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
+{{end}}

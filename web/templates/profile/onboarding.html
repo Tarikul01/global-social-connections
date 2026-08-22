@@ -1,0 +1,23 @@
+{{define "profile/onboarding.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen">
+<main class="max-w-xl mx-auto px-4 py-16">
+<h1 class="text-2xl font-bold mb-2">Welcome to FindNeighbour</h1>
+<p class="text-slate-600 mb-6">Set up your professional profile.</p>
+<form method="POST" action="/onboarding" class="bg-white rounded-xl border p-6 space-y-4">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div><label class="block text-sm mb-1">Full Name</label><input name="full_name" required class="w-full border rounded-lg px-3 py-2"></div>
+  <div><label class="block text-sm mb-1">Profession</label>
+    <select name="profession_id" required class="w-full border rounded-lg px-3 py-2">
+      {{range .Professions}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+    </select>
+  </div>
+  <div><label class="block text-sm mb-1">Bio</label><textarea name="bio" rows="3" class="w-full border rounded-lg px-3 py-2"></textarea></div>
+  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg w-full">Continue</button>
+</form>
+</main>
+</body>
+</html>
+{{end}}

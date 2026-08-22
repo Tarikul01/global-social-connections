@@ -1,0 +1,24 @@
+{{define "discovery/index.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>{{template "partials/head.html" .}}</head>
+<body class="bg-slate-50 min-h-screen" x-data="discoverApp()" x-init="init()">
+{{template "partials/nav.html" .}}
+<main class="max-w-6xl mx-auto px-4 py-8 space-y-4">
+  <div class="flex flex-wrap gap-4 items-end">
+    <h1 class="text-2xl font-bold flex-1">Discover Nearby</h1>
+    <select id="radius" class="border rounded-lg px-3 py-2 text-sm">
+      <option value="2">2 km</option>
+      <option value="5" selected>5 km</option>
+      <option value="10">10 km</option>
+    </select>
+    <button @click="loadNearby()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Search</button>
+  </div>
+  <div id="map" class="h-96 rounded-xl border bg-slate-100 z-0"></div>
+  <div id="nearby-list" class="grid md:grid-cols-2 gap-4"></div>
+</main>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/discover.js"></script>
+</body>
+</html>
+{{end}}
