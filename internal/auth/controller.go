@@ -65,6 +65,10 @@ func (ctrl *Controller) Login(c *gin.Context) {
 	}
 	ctrl.setSessionCookie(c, token)
 	ctrl.log.Info("user logged in", "user_id", user.ID.String())
+	if !user.OnboardingCompleted {
+		c.Redirect(http.StatusFound, "/onboarding")
+		return
+	}
 	next := c.PostForm("next")
 	if next == "" {
 		next = c.Query("next")
@@ -95,11 +99,15 @@ func (ctrl *Controller) Register(c *gin.Context) {
 		return
 	}
 	ctrl.log.Info("user registered", "user_id", user.ID.String(), "verify_token", verifyToken)
-	next := c.PostForm("next")
-	if next == "" {
-		next = "/"
+
+	// Auto-login and send to profile setup (permanent address, tags, about).
+	sessToken, err := ctrl.svc.IssueSession(c.Request.Context(), user.ID, c.ClientIP(), c.Request.UserAgent())
+	if err != nil {
+		c.Redirect(http.StatusFound, "/auth/login?registered=1")
+		return
 	}
-	c.Redirect(http.StatusFound, "/auth/login?registered=1&next="+next)
+	ctrl.setSessionCookie(c, sessToken)
+	c.Redirect(http.StatusFound, "/onboarding")
 }
 
 func (ctrl *Controller) Logout(c *gin.Context) {

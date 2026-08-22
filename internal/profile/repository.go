@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/google/uuid"
@@ -25,14 +26,17 @@ func (r *PgRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Prof
 	err := r.pool.QueryRow(ctx, `
 		SELECT p.id, p.user_id, p.full_name, COALESCE(p.bio,''), COALESCE(p.about,''),
 			COALESCE(p.company,''), COALESCE(p.job_title,''), p.experience_years, p.profession_id,
-			pr.name, p.availability_status, p.looking_for, p.is_verified, p.onboarding_completed, u.username
+			pr.name, p.availability_status, p.looking_for, p.is_verified, p.onboarding_completed,
+			u.username, u.email,
+			COALESCE(p.pitch_url,''), COALESCE(p.personal_quote,''), COALESCE(p.profile_views_count,0)
 		FROM profiles p
 		JOIN users u ON u.id = p.user_id
 		LEFT JOIN professions pr ON pr.id = p.profession_id
 		WHERE p.user_id = $1 AND u.deleted_at IS NULL
 	`, userID).Scan(&p.ID, &p.UserID, &p.FullName, &p.Bio, &p.About, &p.Company, &p.JobTitle,
 		&p.ExperienceYears, &p.ProfessionID, &profName, &p.AvailabilityStatus, &p.LookingFor,
-		&p.IsVerified, &p.OnboardingCompleted, &p.Username)
+		&p.IsVerified, &p.OnboardingCompleted, &p.Username, &p.Email,
+		&p.PitchURL, &p.PersonalQuote, &p.ProfileViews)
 	if err != nil {
 		return nil, err
 	}
@@ -54,10 +58,11 @@ func (r *PgRepository) GetByUsername(ctx context.Context, username string) (*Pro
 func (r *PgRepository) Update(ctx context.Context, userID uuid.UUID, in UpdateInput) error {
 	_, err := r.pool.Exec(ctx, `
 		UPDATE profiles SET full_name=$2, bio=$3, about=$4, company=$5, job_title=$6,
-			experience_years=$7, profession_id=$8, availability_status=$9, looking_for=$10, updated_at=now()
+			experience_years=$7, profession_id=$8, availability_status=$9, looking_for=$10,
+			pitch_url=$11, personal_quote=$12, updated_at=now()
 		WHERE user_id=$1
 	`, userID, in.FullName, in.Bio, in.About, in.Company, in.JobTitle, in.ExperienceYears,
-		in.ProfessionID, in.AvailabilityStatus, in.LookingFor)
+		in.ProfessionID, in.AvailabilityStatus, in.LookingFor, in.PitchURL, in.PersonalQuote)
 	return err
 }
 
@@ -106,6 +111,11 @@ func (r *PgRepository) GetTags(ctx context.Context, userID uuid.UUID) ([]Tag, er
 	return list, nil
 }
 
+func (r *PgRepository) ClearTags(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM user_tags WHERE user_id=$1`, userID)
+	return err
+}
+
 func (r *PgRepository) AddTag(ctx context.Context, userID uuid.UUID, name string) error {
 	slug := slugify(name)
 	var tagID uuid.UUID
@@ -149,6 +159,114 @@ func (r *PgRepository) AddSkill(ctx context.Context, userID uuid.UUID, name stri
 	}
 	_, err = r.pool.Exec(ctx, `INSERT INTO user_skills (user_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, userID, skillID)
 	return err
+}
+
+func (r *PgRepository) ClearSkills(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM user_skills WHERE user_id=$1`, userID)
+	return err
+}
+
+func (r *PgRepository) GetSocialLinks(ctx context.Context, userID uuid.UUID) ([]SocialLink, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT platform, url FROM social_links WHERE user_id=$1 ORDER BY display_order, platform
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []SocialLink
+	for rows.Next() {
+		var s SocialLink
+		_ = rows.Scan(&s.Platform, &s.URL)
+		list = append(list, s)
+	}
+	return list, nil
+}
+
+func (r *PgRepository) ReplaceSocialLinks(ctx context.Context, userID uuid.UUID, links []SocialLink) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM social_links WHERE user_id=$1`, userID)
+	if err != nil {
+		return err
+	}
+	for i, link := range links {
+		if link.Platform == "" || link.URL == "" {
+			continue
+		}
+		_, err = r.pool.Exec(ctx, `
+			INSERT INTO social_links (user_id, platform, url, display_order) VALUES ($1,$2,$3,$4)
+			ON CONFLICT (user_id, platform) DO UPDATE SET url=EXCLUDED.url, display_order=EXCLUDED.display_order
+		`, userID, link.Platform, link.URL, i)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *PgRepository) GetStats(ctx context.Context, userID uuid.UUID) (Stats, error) {
+	var s Stats
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM follows WHERE follower_id=$1),
+			(SELECT COUNT(*) FROM follows WHERE following_id=$1),
+			COALESCE((SELECT profile_views_count FROM profiles WHERE user_id=$1), 0),
+			(SELECT COUNT(*) FROM connections WHERE status='accepted' AND (requester_id=$1 OR recipient_id=$1))
+	`, userID).Scan(&s.Following, &s.Followers, &s.Views, &s.Interactions)
+	return s, err
+}
+
+func (r *PgRepository) IncrementViews(ctx context.Context, profileUserID, viewerID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE profiles SET profile_views_count = profile_views_count + 1 WHERE user_id=$1
+	`, profileUserID)
+	if err != nil {
+		return err
+	}
+	var viewer any
+	if viewerID != uuid.Nil {
+		viewer = viewerID
+	}
+	_, _ = r.pool.Exec(ctx, `
+		INSERT INTO profile_views (profile_user_id, viewer_user_id) VALUES ($1, $2)
+	`, profileUserID, viewer)
+	return nil
+}
+
+func (r *PgRepository) ListFriends(ctx context.Context, userID uuid.UUID) ([]Friend, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.username, p.full_name
+		FROM connections c
+		JOIN users u ON u.id = CASE WHEN c.requester_id=$1 THEN c.recipient_id ELSE c.requester_id END
+		JOIN profiles p ON p.user_id = u.id
+		WHERE c.status='accepted' AND (c.requester_id=$1 OR c.recipient_id=$1)
+		ORDER BY p.full_name
+		LIMIT 50
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []Friend
+	for rows.Next() {
+		var f Friend
+		_ = rows.Scan(&f.UserID, &f.Username, &f.FullName)
+		list = append(list, f)
+	}
+	return list, nil
+}
+
+func (r *PgRepository) GetAddress(ctx context.Context, userID uuid.UUID) (Address, error) {
+	var a Address
+	err := r.pool.QueryRow(ctx, `
+		SELECT COALESCE(city,''), COALESCE(region,''), COALESCE(country,''),
+			COALESCE(ST_Y(geom::geometry),0), COALESCE(ST_X(geom::geometry),0)
+		FROM user_locations WHERE user_id=$1 AND geom IS NOT NULL
+	`, userID).Scan(&a.City, &a.Region, &a.Country, &a.Lat, &a.Lng)
+	if err != nil {
+		return a, nil
+	}
+	a.OK = true
+	return a, nil
 }
 
 func slugify(s string) string {
@@ -212,6 +330,22 @@ func (s *Service) AddTag(ctx context.Context, userID uuid.UUID, name string) err
 	return s.repo.AddTag(ctx, userID, name)
 }
 
+func (s *Service) ReplaceTags(ctx context.Context, userID uuid.UUID, names []string) error {
+	if err := s.repo.ClearTags(ctx, userID); err != nil {
+		return err
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := s.repo.AddTag(ctx, userID, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) GetSkills(ctx context.Context, userID uuid.UUID) ([]Skill, error) {
 	return s.repo.GetSkills(ctx, userID)
 }
@@ -223,10 +357,68 @@ func (s *Service) AddSkill(ctx context.Context, userID uuid.UUID, name string) e
 	return s.repo.AddSkill(ctx, userID, name)
 }
 
+func (s *Service) ReplaceSkills(ctx context.Context, userID uuid.UUID, names []string) error {
+	if err := s.repo.ClearSkills(ctx, userID); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		if err := s.repo.AddSkill(ctx, userID, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) GetSocialLinks(ctx context.Context, userID uuid.UUID) ([]SocialLink, error) {
+	return s.repo.GetSocialLinks(ctx, userID)
+}
+
+func (s *Service) ReplaceSocialLinks(ctx context.Context, userID uuid.UUID, links []SocialLink) error {
+	return s.repo.ReplaceSocialLinks(ctx, userID, links)
+}
+
+func (s *Service) GetStats(ctx context.Context, userID uuid.UUID) (Stats, error) {
+	return s.repo.GetStats(ctx, userID)
+}
+
+func (s *Service) RecordView(ctx context.Context, profileUserID, viewerID uuid.UUID) error {
+	if profileUserID == viewerID {
+		return nil
+	}
+	return s.repo.IncrementViews(ctx, profileUserID, viewerID)
+}
+
+func (s *Service) ListFriends(ctx context.Context, userID uuid.UUID) ([]Friend, error) {
+	return s.repo.ListFriends(ctx, userID)
+}
+
+func (s *Service) GetAddress(ctx context.Context, userID uuid.UUID) (Address, error) {
+	return s.repo.GetAddress(ctx, userID)
+}
+
 func (s *Service) SetProfilePhoto(ctx context.Context, userID, fileID uuid.UUID) error {
 	return s.repo.SetProfilePhoto(ctx, userID, fileID)
 }
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// MaskEmail hides the local part for profile display (t***@gmail.com).
+func MaskEmail(email string) string {
+	at := strings.Index(email, "@")
+	if at <= 0 {
+		return email
+	}
+	local, domain := email[:at], email[at:]
+	if len(local) == 1 {
+		return local + "***" + domain
+	}
+	return string(local[0]) + "***" + domain
 }

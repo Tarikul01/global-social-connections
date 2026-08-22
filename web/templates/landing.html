@@ -22,11 +22,15 @@
       background: #6366f1; cursor: pointer;
     }
     .person-marker.offline { background: #64748b; opacity: .85; }
+    .person-marker.me { background: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.35); }
+    .person-marker.live { background: #10b981; }
     .person-marker .dot {
       position: absolute; right: -1px; bottom: -1px;
       width: 12px; height: 12px; border-radius: 9999px;
       border: 2px solid #fff; background: #22c55e;
     }
+    .person-marker.live .dot { background: #fbbf24; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 50% { transform: scale(1.15); } }
     .person-marker.offline .dot { background: #94a3b8; }
     .bottom-sheet {
       position: absolute; left: 50%; transform: translateX(-50%);
@@ -46,12 +50,18 @@
       <span class="font-semibold tracking-tight">FindNeighbour</span>
       <span class="text-white/50 text-xs ml-2">GSC · Global Social Connections</span>
     </div>
-    <div class="pointer-events-auto flex gap-2">
+    <div class="pointer-events-auto flex gap-2 items-center">
       {{if .LoggedIn}}
-        <a href="/settings/location" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
-        <a href="/profile" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Profile</a>
+        <button type="button" id="live-toggle" data-on="{{if .LiveOn}}1{{else}}0{{end}}"
+          class="text-sm px-4 py-2 rounded-full shadow {{if .LiveOn}}bg-emerald-500{{else}}bg-slate-900/80{{end}} text-white"
+          title="Share live location (permanent address stays the same)">{{if .LiveOn}}Live ON{{else}}Live location{{end}}</button>
+        <a href="/profile/edit" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Profile</a>
+        <form method="POST" action="/auth/logout" class="inline">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button type="submit" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Logout</button>
+        </form>
       {{else}}
-        <a href="/auth/login?next=/settings/location" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
+        <a href="/auth/login?next=/onboarding" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
         <a href="/auth/login?next=/" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Login</a>
       {{end}}
     </div>
@@ -88,11 +98,14 @@
   <script>
     window.FN_MAP = {
       loggedIn: {{if .LoggedIn}}true{{else}}false{{end}},
+      csrf: {{if .CSRFToken}}"{{.CSRFToken}}"{{else}}""{{end}},
+      liveOn: {{if .LiveOn}}true{{else}}false{{end}},
       total: {{.TotalPeople}},
       online: {{.OnlinePeople}}
     };
   </script>
   <script src="/static/js/map-home.js"></script>
+  {{if .LoggedIn}}<script src="/static/js/live-location.js"></script>{{end}}
 </body>
 </html>
 {{end}}

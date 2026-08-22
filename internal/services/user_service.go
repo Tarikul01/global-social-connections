@@ -47,6 +47,10 @@ func (s *UserService) Nearby(ctx context.Context, viewerID uuid.UUID, f NearbyFi
 	return s.discovery.Nearby(ctx, viewerID, f)
 }
 
+func (s *UserService) MyMapMarker(ctx context.Context, userID uuid.UUID, lat, lng float64) (*NearbyUser, error) {
+	return s.discovery.MyMapMarker(ctx, userID, lat, lng)
+}
+
 func (s *UserService) CountDiscoverable(ctx context.Context) (total, online int, err error) {
 	return s.discovery.CountDiscoverable(ctx)
 }

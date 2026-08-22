@@ -97,6 +97,22 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load nearby users"})
 		return
 	}
+
+	// Always include the logged-in user on the map (permanent address or live).
+	liveSharing := false
+	if viewerID != uuid.Nil {
+		if me, err := ctrl.users.MyMapMarker(c.Request.Context(), viewerID, lat, lng); err == nil && me != nil {
+			liveSharing = me.Live
+			filtered := users[:0]
+			for _, u := range users {
+				if u.ID != viewerID {
+					filtered = append(filtered, u)
+				}
+			}
+			users = append([]services.NearbyUser{*me}, filtered...)
+		}
+	}
+
 	total, online, _ := ctrl.users.CountDiscoverable(c.Request.Context())
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -104,6 +120,8 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 			"users":  users,
 			"total":  total,
 			"online": online,
+			"me":     viewerID != uuid.Nil,
+			"live":   liveSharing,
 		},
 	})
 }

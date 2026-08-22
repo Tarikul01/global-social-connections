@@ -120,8 +120,6 @@ func registerWeb(r *gin.Engine, d Deps) {
 		authed.GET("/settings/location", d.LocCtrl.SettingsForm)
 		authed.POST("/settings/location", d.LocCtrl.UpdateSettings)
 		authed.POST("/settings/location/update", d.LocCtrl.UpdateLocation)
-		authed.POST("/api/live-location", d.LocCtrl.UpdateLiveLocation)
-		authed.DELETE("/api/live-location", d.LocCtrl.StopLiveLocation)
 
 		authed.GET("/events", d.EventCtrl.List)
 		authed.GET("/events/new", d.EventCtrl.CreateForm)

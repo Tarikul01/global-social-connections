@@ -111,15 +111,22 @@
   function renderMarkers(users) {
     markerLayer.clearLayers();
     users.forEach((u) => {
+      const cls = [
+        'person-marker',
+        u.online ? '' : 'offline',
+        u.is_me ? 'me' : '',
+        u.live ? 'live' : ''
+      ].filter(Boolean).join(' ');
       const icon = L.divIcon({
         className: '',
-        html: `<div class="person-marker ${u.online ? '' : 'offline'}">${escapeHtml(u.initials || '?')}<span class="dot"></span></div>`,
+        html: `<div class="${cls}">${escapeHtml(u.initials || '?')}<span class="dot"></span></div>`,
         iconSize: [40, 40],
         iconAnchor: [20, 20]
       });
-      const m = L.marker([u.lat, u.lng], { icon });
+      const m = L.marker([u.lat, u.lng], { icon, zIndexOffset: u.is_me ? 1000 : 0 });
       m.on('click', () => openPerson(u));
-      m.bindTooltip(u.full_name + (u.online ? ' · Online' : ' · Offline'));
+      const tip = u.full_name + (u.is_me ? ' (You)' : '') + (u.live ? ' · Live' : (u.online ? ' · Online' : ' · Offline'));
+      m.bindTooltip(tip);
       markerLayer.addLayer(m);
     });
   }
@@ -127,15 +134,15 @@
   function renderList(users) {
     const list = document.getElementById('people-list');
     if (!users.length) {
-      list.innerHTML = '<p class="text-sm text-white/50 py-4 text-center">No people in this area yet. Be the first — Add me on map.</p>';
+      list.innerHTML = '<p class="text-sm text-white/50 py-4 text-center">No people in this area yet. Be the first — complete your profile.</p>';
       return;
     }
     list.innerHTML = users.map((u) => `
       <button type="button" data-username="${escapeAttr(u.username)}" class="person-row w-full text-left flex items-center gap-3 p-2 rounded-xl hover:bg-white/10">
-        <span class="person-marker ${u.online ? '' : 'offline'}" style="width:36px;height:36px;font-size:11px">${escapeHtml(u.initials || '?')}<span class="dot"></span></span>
+        <span class="person-marker ${u.online ? '' : 'offline'} ${u.is_me ? 'me' : ''} ${u.live ? 'live' : ''}" style="width:36px;height:36px;font-size:11px">${escapeHtml(u.initials || '?')}<span class="dot"></span></span>
         <span class="flex-1 min-w-0">
-          <span class="block font-medium truncate">${escapeHtml(u.full_name)}</span>
-          <span class="block text-xs text-white/50 truncate">${escapeHtml(u.profession || 'Professional')} · ${u.online ? 'Online' : 'Offline'} · ${u.distance_km} km</span>
+          <span class="block font-medium truncate">${escapeHtml(u.full_name)}${u.is_me ? ' (You)' : ''}</span>
+          <span class="block text-xs text-white/50 truncate">${escapeHtml(u.profession || 'Professional')} · ${u.live ? 'Live' : (u.online ? 'Online' : 'Offline')} · ${u.distance_km} km</span>
         </span>
       </button>
     `).join('');
@@ -179,4 +186,6 @@
   } else {
     init();
   }
+
+  window.FN_reloadMap = loadPeople;
 })();

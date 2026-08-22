@@ -24,6 +24,10 @@ type Profile struct {
 	IsVerified          bool
 	OnboardingCompleted bool
 	Username            string
+	Email               string
+	PitchURL            string
+	PersonalQuote       string
+	ProfileViews        int
 	CreatedAt           time.Time
 }
 
@@ -37,6 +41,8 @@ type UpdateInput struct {
 	ProfessionID       *uuid.UUID
 	AvailabilityStatus string
 	LookingFor         []string
+	PitchURL           string
+	PersonalQuote      string
 }
 
 type Tag struct {
@@ -53,4 +59,26 @@ type Skill struct {
 type SocialLink struct {
 	Platform string
 	URL      string
+}
+
+type Stats struct {
+	Following    int
+	Followers    int
+	Views        int
+	Interactions int
+}
+
+type Friend struct {
+	UserID   uuid.UUID
+	Username string
+	FullName string
+}
+
+type Address struct {
+	City    string
+	Region  string
+	Country string
+	Lat     float64
+	Lng     float64
+	OK      bool
 }

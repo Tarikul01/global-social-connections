@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"html/template"
+	"net/http"
 	"strconv"
 
 	"github.com/findneighbour/findneighbour/internal/auth"
@@ -28,16 +29,25 @@ func NewController(svc *Service, loc *location.Service, auth *auth.Service, cfg 
 
 // LandingMap is the public homepage — OpenStreetMap with people. No login required.
 func (ctrl *Controller) LandingMap(c *gin.Context) {
+	if u, ok := auth.CurrentUser(c); ok && !u.OnboardingCompleted {
+		c.Redirect(http.StatusFound, "/onboarding")
+		return
+	}
 	total, online, _ := ctrl.svc.CountDiscoverable(c.Request.Context())
 	loggedIn := false
-	if _, ok := auth.CurrentUser(c); ok {
+	liveOn := false
+	if u, ok := auth.CurrentUser(c); ok {
 		loggedIn = true
+		if ctrl.loc != nil {
+			liveOn = ctrl.loc.IsLiveSharing(c.Request.Context(), u.ID)
+		}
 	}
 	view.Render(c, ctrl.tmpl, ctrl.cfg, "landing.html", gin.H{
 		"Title":        "FindNeighbour",
 		"TotalPeople":  total,
 		"OnlinePeople": online,
 		"LoggedIn":     loggedIn,
+		"LiveOn":       liveOn,
 	})
 }
 

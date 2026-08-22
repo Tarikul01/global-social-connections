@@ -4,24 +4,122 @@
 <head>{{template "partials/head.html" .}}</head>
 <body class="bg-slate-50 min-h-screen">
 {{template "partials/nav.html" .}}
-<main class="max-w-6xl mx-auto px-4 py-8">
-<h1 class="text-2xl font-bold mb-6">Edit Profile</h1>
-{{if .Error}}<p class="text-red-600 mb-4">{{.Error}}</p>{{end}}
-<form method="POST" action="/profile" class="bg-white rounded-xl border p-6 space-y-4 max-w-xl">
-  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-  <div><label class="block text-sm font-medium mb-1">Full Name</label><input name="full_name" value="{{.Profile.FullName}}" required class="w-full border rounded-lg px-3 py-2"></div>
-  <div><label class="block text-sm font-medium mb-1">Bio</label><textarea name="bio" rows="3" class="w-full border rounded-lg px-3 py-2">{{.Profile.Bio}}</textarea></div>
-  <div><label class="block text-sm font-medium mb-1">Profession</label>
-    <select name="profession_id" class="w-full border rounded-lg px-3 py-2">
-      <option value="">Select...</option>
-      {{range .Professions}}<option value="{{.ID}}" {{if $.Profile.ProfessionID}}{{if eq $.Profile.ProfessionID.String .ID.String}}selected{{end}}{{end}}>{{.Name}}</option>{{end}}
-    </select>
+<main class="max-w-2xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold">Edit profile</h1>
+      <p class="text-slate-600 text-sm">Photo, about, location, interests, social links, and pitch.</p>
+    </div>
+    <a href="/profile" class="text-sm text-indigo-600">View profile</a>
   </div>
-  <div><label class="block text-sm font-medium mb-1">Tag</label><input name="tags" placeholder="#Go" class="w-full border rounded-lg px-3 py-2"></div>
-  <div><label class="block text-sm font-medium mb-1">Skill</label><input name="skills" class="w-full border rounded-lg px-3 py-2"></div>
-  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Save</button>
-</form>
+  {{if .Error}}<p class="text-red-600 mb-4">{{.Error}}</p>{{end}}
+
+  <form method="POST" action="/profile/photo" enctype="multipart/form-data" class="bg-white rounded-xl border p-4 mb-4 flex items-center gap-4">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700 overflow-hidden">
+      {{if .Profile.ProfilePhotoURL}}<img src="{{.Profile.ProfilePhotoURL}}" class="w-full h-full object-cover" alt="">{{else}}📷{{end}}
+    </div>
+    <div class="flex-1">
+      <label class="block text-sm font-medium mb-1">Profile photo</label>
+      <input type="file" name="photo" accept="image/*" class="text-sm">
+    </div>
+    <button class="bg-slate-900 text-white text-sm px-3 py-2 rounded-lg">Upload</button>
+  </form>
+
+  <form method="POST" action="/profile" class="bg-white rounded-xl border p-6 space-y-5">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="lat" id="lat" value="{{.Lat}}">
+    <input type="hidden" name="lng" id="lng" value="{{.Lng}}">
+    <input type="hidden" name="city" id="city" value="{{.City}}">
+    <input type="hidden" name="region" id="region" value="{{.Region}}">
+    <input type="hidden" name="country" id="country" value="{{.Country}}">
+    <input type="hidden" name="availability_status" value="{{if .Profile}}{{.Profile.AvailabilityStatus}}{{else}}available{{end}}">
+
+    <div><label class="block text-sm font-medium mb-1">Full name</label>
+      <input name="full_name" value="{{if .Profile}}{{.Profile.FullName}}{{end}}" required class="w-full border rounded-lg px-3 py-2"></div>
+
+    <div class="grid sm:grid-cols-2 gap-4">
+      <div><label class="block text-sm font-medium mb-1">Profession / role</label>
+        <select name="profession_id" class="w-full border rounded-lg px-3 py-2">
+          <option value="">Select...</option>
+          {{range .Professions}}
+          <option value="{{.ID}}" {{if $.Profile.ProfessionID}}{{if eq $.Profile.ProfessionID.String .ID.String}}selected{{end}}{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </div>
+      <div><label class="block text-sm font-medium mb-1">Company</label>
+        <input name="company" value="{{if .Profile}}{{.Profile.Company}}{{end}}" class="w-full border rounded-lg px-3 py-2"></div>
+    </div>
+
+    <div><label class="block text-sm font-medium mb-1">About you</label>
+      <textarea name="about" rows="4" placeholder="I am a fullstack software engineer..." class="w-full border rounded-lg px-3 py-2">{{if .Profile}}{{.Profile.About}}{{end}}</textarea></div>
+
+    <div><label class="block text-sm font-medium mb-1">Short bio</label>
+      <textarea name="bio" rows="2" class="w-full border rounded-lg px-3 py-2">{{if .Profile}}{{.Profile.Bio}}{{end}}</textarea></div>
+
+    <div>
+      <label class="block text-sm font-medium mb-2">Role tags</label>
+      <div class="flex flex-wrap gap-2">
+        {{range .SuggestedTags}}
+        <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm cursor-pointer hover:border-indigo-400">
+          <input type="checkbox" name="tags" value="{{.}}" class="rounded" {{if index $.TagSet .}}checked{{end}}> {{.}}
+        </label>
+        {{end}}
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-2">Interest areas</label>
+      <div class="flex flex-wrap gap-2 mb-2">
+        {{range .SuggestedInterests}}
+        <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm cursor-pointer hover:border-indigo-400">
+          <input type="checkbox" name="interests" value="{{.}}" class="rounded" {{if index $.SkillSet .}}checked{{end}}> {{.}}
+        </label>
+        {{end}}
+      </div>
+      <input name="interests_custom" value="{{.SkillNames}}" placeholder="Or type custom interests, comma-separated" class="w-full border rounded-lg px-3 py-2 text-sm">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-2">Social media</label>
+      <div class="space-y-2">
+        {{range .SocialPlatforms}}
+        <div class="flex gap-2 items-center">
+          <span class="w-24 text-sm capitalize text-slate-600">{{.}}</span>
+          <input name="social_{{.}}" value="{{index $.LinkMap .}}" placeholder="https://..." class="flex-1 border rounded-lg px-3 py-2 text-sm">
+        </div>
+        {{end}}
+      </div>
+    </div>
+
+    <div><label class="block text-sm font-medium mb-1">1-minute pitch URL</label>
+      <input name="pitch_url" value="{{if .Profile}}{{.Profile.PitchURL}}{{end}}" placeholder="YouTube / Loom / Drive link" class="w-full border rounded-lg px-3 py-2"></div>
+
+    <div><label class="block text-sm font-medium mb-1">Personal quote</label>
+      <input name="personal_quote" value="{{if .Profile}}{{.Profile.PersonalQuote}}{{end}}" placeholder="You are the architect of your own fate!" class="w-full border rounded-lg px-3 py-2"></div>
+
+    <div>
+      {{template "partials/location_picker.html" .}}
+    </div>
+
+    <button type="submit" class="bg-indigo-600 text-white px-4 py-2.5 rounded-lg font-medium w-full sm:w-auto">Save profile</button>
+  </form>
 </main>
+<script src="/static/js/location-picker.js"></script>
+<script>
+  initLocationPicker({
+    rootId: 'location-picker-root',
+    mapId: 'location-picker',
+    latInput: 'lat',
+    lngInput: 'lng',
+    cityInput: 'city',
+    regionInput: 'region',
+    countryInput: 'country',
+    labelId: 'picked-coords',
+    lat: {{.Lat}},
+    lng: {{.Lng}}
+  });
+</script>
 </body>
 </html>
 {{end}}

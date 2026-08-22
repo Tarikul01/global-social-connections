@@ -1,0 +1,32 @@
+{{define "partials/location_picker.html"}}
+<section class="fn-loc" id="location-picker-root">
+  <div class="fn-loc__head">
+    <h2 class="fn-loc__title">Location</h2>
+    <p class="fn-loc__privacy">
+      <span class="fn-loc__lock" aria-hidden="true">🔒</span>
+      Your exact location is private — only an approximate area is shared.
+    </p>
+  </div>
+
+  <div class="fn-loc__hint">
+    <span class="fn-loc__step">1</span>
+    <div>
+      <p class="fn-loc__hint-title">Drop a pin on the map</p>
+      <p class="fn-loc__hint-text">Tap the map, drag the pin, or use the locate button to choose where you live.</p>
+    </div>
+  </div>
+
+  <div class="fn-loc__map-wrap">
+    <div id="location-picker" class="fn-loc__map"></div>
+    <div class="fn-loc__controls" role="group" aria-label="Map controls">
+      <button type="button" class="fn-loc__btn" data-action="expand" title="Expand map">⛶</button>
+      <button type="button" class="fn-loc__btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button type="button" class="fn-loc__btn" data-action="zoom-out" title="Zoom out">−</button>
+      <button type="button" class="fn-loc__btn" data-action="locate" title="Use my location">◎</button>
+    </div>
+  </div>
+
+  <p id="picked-coords" class="fn-loc__label">Choose a point on the map</p>
+  <p class="fn-loc__note">This is your <strong>permanent address</strong>. Live location (from the home map) never overwrites it.</p>
+</section>
+{{end}}

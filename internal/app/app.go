@@ -87,6 +87,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	userCtrl := controllers.NewUserController(userSvc, cfg, log, tmpl)
 	authCtrl := auth.NewController(authSvc, cfg, log, tmpl)
 	profileCtrl := profile.NewController(profileSvc, storageSvc, authSvc, cfg, log, tmpl)
+	profileCtrl.SetLocationService(locSvc)
 	followCtrl := follow.NewController(followSvc, authSvc, log, tmpl)
 	connCtrl := connection.NewControllerWithConfig(connSvc, authSvc, notifSvc, cfg, log, tmpl)
 	discCtrl := discovery.NewController(discSvc, locSvc, authSvc, cfg, log, tmpl)

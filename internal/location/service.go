@@ -71,16 +71,43 @@ func (r *Repository) UpsertLocation(ctx context.Context, userID uuid.UUID, lat, 
 }
 
 func (r *Repository) UpsertLiveLocation(ctx context.Context, userID uuid.UUID, eventID *uuid.UUID, lat, lng float64) error {
-	var eid any
-	if eventID != nil {
-		eid = *eventID
+	if eventID == nil {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM live_locations WHERE user_id=$1 AND event_id IS NULL`, userID)
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO live_locations (user_id, event_id, latitude, longitude, updated_at)
+			VALUES ($1, NULL, $2, $3, now())
+		`, userID, lat, lng)
+		return err
 	}
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO live_locations (user_id, event_id, latitude, longitude, updated_at)
 		VALUES ($1, $2, $3, $4, now())
 		ON CONFLICT (user_id, event_id) DO UPDATE SET latitude=$3, longitude=$4, updated_at=now()
-	`, userID, eid, lat, lng)
+	`, userID, *eventID, lat, lng)
 	return err
+}
+
+func (r *Repository) GetPermanentLocation(ctx context.Context, userID uuid.UUID) (lat, lng float64, city string, ok bool, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT ST_Y(geom::geometry), ST_X(geom::geometry), COALESCE(city,'')
+		FROM user_locations WHERE user_id=$1 AND geom IS NOT NULL
+	`, userID).Scan(&lat, &lng, &city)
+	if err != nil {
+		return 0, 0, "", false, nil
+	}
+	return lat, lng, city, true, nil
+}
+
+func (r *Repository) GetActiveLiveLocation(ctx context.Context, userID uuid.UUID) (lat, lng float64, ok bool, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT latitude, longitude FROM live_locations
+		WHERE user_id=$1 AND event_id IS NULL AND updated_at > now() - interval '5 minutes'
+		ORDER BY updated_at DESC LIMIT 1
+	`, userID).Scan(&lat, &lng)
+	if err != nil {
+		return 0, 0, false, nil
+	}
+	return lat, lng, true, nil
 }
 
 func (r *Repository) DeleteLiveLocation(ctx context.Context, userID uuid.UUID, eventID *uuid.UUID) error {
@@ -149,16 +176,67 @@ func (s *Service) UpdateLocation(ctx context.Context, userID uuid.UUID, lat, lng
 	return s.repo.UpsertLocation(ctx, userID, lat, lng, city, region, country)
 }
 
+func (s *Service) GetPermanentLocation(ctx context.Context, userID uuid.UUID) (lat, lng float64, city string, ok bool, err error) {
+	return s.repo.GetPermanentLocation(ctx, userID)
+}
+
+func (s *Service) EnableLiveSharing(ctx context.Context, userID uuid.UUID) error {
+	sSettings, err := s.repo.GetSettings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	sSettings.LiveSharingEnabled = true
+	sSettings.LiveSharingScope = "public"
+	sSettings.DiscoveryEnabled = true
+	sSettings.ShowOnMap = true
+	if sSettings.SharingMode == "hidden" {
+		sSettings.SharingMode = "discoverable"
+	}
+	return s.repo.UpdateSettings(ctx, userID, *sSettings)
+}
+
+func (s *Service) DisableLiveSharing(ctx context.Context, userID uuid.UUID) error {
+	sSettings, err := s.repo.GetSettings(ctx, userID)
+	if err != nil {
+		return err
+	}
+	sSettings.LiveSharingEnabled = false
+	sSettings.LiveSharingScope = "none"
+	_ = s.repo.DeleteLiveLocation(ctx, userID, nil)
+	return s.repo.UpdateSettings(ctx, userID, *sSettings)
+}
+
 func (s *Service) UpdateLiveLocation(ctx context.Context, userID uuid.UUID, eventID *uuid.UUID, lat, lng float64) error {
 	settings, err := s.repo.GetSettings(ctx, userID)
-	if err != nil || !settings.LiveSharingEnabled {
+	if err != nil {
 		return err
+	}
+	if !settings.LiveSharingEnabled {
+		if err := s.EnableLiveSharing(ctx, userID); err != nil {
+			return err
+		}
 	}
 	return s.repo.UpsertLiveLocation(ctx, userID, eventID, lat, lng)
 }
 
 func (s *Service) StopLiveLocation(ctx context.Context, userID uuid.UUID, eventID *uuid.UUID) error {
+	if eventID == nil {
+		return s.DisableLiveSharing(ctx, userID)
+	}
 	return s.repo.DeleteLiveLocation(ctx, userID, eventID)
+}
+
+func (s *Service) IsLiveSharing(ctx context.Context, userID uuid.UUID) bool {
+	sSettings, err := s.repo.GetSettings(ctx, userID)
+	return err == nil && sSettings.LiveSharingEnabled
+}
+
+func (s *Service) ActiveLiveOrPermanent(ctx context.Context, userID uuid.UUID) (lat, lng float64, live bool, ok bool) {
+	if flat, flng, lok, _ := s.repo.GetActiveLiveLocation(ctx, userID); lok {
+		return flat, flng, true, true
+	}
+	plat, plng, _, pok, _ := s.repo.GetPermanentLocation(ctx, userID)
+	return plat, plng, false, pok
 }
 
 func (s *Service) EventLiveLocations(ctx context.Context, eventID uuid.UUID) ([]LiveLocation, error) {

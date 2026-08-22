@@ -31,6 +31,7 @@ func Auth(svc *auth.Service, cfg *config.Config) gin.HandlerFunc {
 		c.Set("user", user)
 		c.Set("session", sess)
 		c.Set("user_id", user.ID.String())
+		c.Set("csrf_token", security.GenerateCSRFToken(cfg.CSRFSecret, sess.ID.String()))
 		c.Next()
 	}
 }

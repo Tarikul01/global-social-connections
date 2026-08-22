@@ -3,21 +3,68 @@
 <html lang="en">
 <head>{{template "partials/head.html" .}}</head>
 <body class="bg-slate-50 min-h-screen">
-<main class="max-w-xl mx-auto px-4 py-16">
-<h1 class="text-2xl font-bold mb-2">Welcome to FindNeighbour</h1>
-<p class="text-slate-600 mb-6">Set up your professional profile.</p>
-<form method="POST" action="/onboarding" class="bg-white rounded-xl border p-6 space-y-4">
-  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-  <div><label class="block text-sm mb-1">Full Name</label><input name="full_name" required class="w-full border rounded-lg px-3 py-2"></div>
-  <div><label class="block text-sm mb-1">Profession</label>
-    <select name="profession_id" required class="w-full border rounded-lg px-3 py-2">
-      {{range .Professions}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-    </select>
-  </div>
-  <div><label class="block text-sm mb-1">Bio</label><textarea name="bio" rows="3" class="w-full border rounded-lg px-3 py-2"></textarea></div>
-  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg w-full">Continue</button>
-</form>
+<main class="max-w-2xl mx-auto px-4 py-10">
+  <h1 class="text-2xl font-bold mb-1">Complete your profile</h1>
+  <p class="text-slate-600 mb-6">Set your permanent address on the map, tell people about you, and pick tags. You can change these later from Profile.</p>
+  {{if .Error}}<p class="text-red-600 mb-4">{{.Error}}</p>{{end}}
+  <form method="POST" action="/onboarding" class="bg-white rounded-xl border p-6 space-y-5" id="profile-setup-form">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="lat" id="lat" value="{{.Lat}}">
+    <input type="hidden" name="lng" id="lng" value="{{.Lng}}">
+    <input type="hidden" name="city" id="city" value="">
+    <input type="hidden" name="region" id="region" value="">
+    <input type="hidden" name="country" id="country" value="">
+
+    <div>
+      <label class="block text-sm font-medium mb-1">Full name</label>
+      <input name="full_name" required value="{{if .Profile}}{{.Profile.FullName}}{{end}}" class="w-full border rounded-lg px-3 py-2">
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1">Profession</label>
+      <select name="profession_id" class="w-full border rounded-lg px-3 py-2">
+        <option value="">Select...</option>
+        {{range .Professions}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1">About you</label>
+      <textarea name="about" rows="4" placeholder="Short intro — what you do, what you're looking for..." class="w-full border rounded-lg px-3 py-2"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1">Short bio</label>
+      <textarea name="bio" rows="2" class="w-full border rounded-lg px-3 py-2"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-2">Tags</label>
+      <div class="flex flex-wrap gap-2">
+        {{range .SuggestedTags}}
+        <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm cursor-pointer hover:border-indigo-400">
+          <input type="checkbox" name="tags" value="{{.}}" class="rounded"> {{.}}
+        </label>
+        {{end}}
+      </div>
+    </div>
+    <div>
+      {{template "partials/location_picker.html" .}}
+    </div>
+    <button type="submit" class="bg-indigo-600 text-white px-4 py-2.5 rounded-lg w-full font-medium">Save &amp; show me on map</button>
+  </form>
 </main>
+<script src="/static/js/location-picker.js"></script>
+<script>
+  initLocationPicker({
+    rootId: 'location-picker-root',
+    mapId: 'location-picker',
+    latInput: 'lat',
+    lngInput: 'lng',
+    cityInput: 'city',
+    regionInput: 'region',
+    countryInput: 'country',
+    labelId: 'picked-coords',
+    lat: {{.Lat}},
+    lng: {{.Lng}}
+  });
+</script>
 </body>
 </html>
 {{end}}

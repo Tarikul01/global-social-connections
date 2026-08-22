@@ -1,41 +1,206 @@
 {{define "profile/show.html"}}
 <!DOCTYPE html>
 <html lang="en">
-<head>{{template "partials/head.html" .}}</head>
-<body class="bg-slate-50 min-h-screen">
-{{template "partials/nav.html" .}}
-<main class="max-w-6xl mx-auto px-4 py-8">
-<div class="bg-white rounded-2xl border p-6">
-  <div class="flex justify-between items-start">
-    <div>
-      <h1 class="text-2xl font-bold">{{.Profile.FullName}}</h1>
-      <p class="text-slate-500">@{{.Profile.Username}}</p>
-      {{if .Profile.ProfessionName}}<p class="text-indigo-600 mt-1">{{.Profile.ProfessionName}}</p>{{end}}
-    </div>
-    {{if .IsOwn}}
-    <a href="/profile/edit" class="text-sm bg-slate-100 px-3 py-1 rounded-lg">Edit</a>
-    {{else}}
-    <div class="flex gap-2">
-      <form method="POST" action="/users/{{.Profile.UserID}}/follow">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} · FindNeighbour</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <style>
+    :root {
+      --fn-bg: #12162b;
+      --fn-card: #1a1f3c;
+      --fn-accent: #7c5cfc;
+      --fn-muted: #9aa3c7;
+    }
+    body.profile-page { background: var(--fn-bg); color: #fff; min-height: 100vh; }
+    .fn-card { background: var(--fn-card); border-radius: 1.25rem; }
+    .fn-icon {
+      width: 2.5rem; height: 2.5rem; border-radius: 0.85rem;
+      background: var(--fn-accent); display: inline-flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .fn-pill {
+      display: inline-block; padding: 0.4rem 0.9rem; border-radius: 9999px;
+      background: #252b4a; color: #e8eaf6; font-size: 0.8rem; margin: 0.2rem;
+    }
+    .fn-row { display: flex; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .fn-row:last-child { border-bottom: 0; }
+    details > summary { list-style: none; cursor: pointer; }
+    details > summary::-webkit-details-marker { display: none; }
+  </style>
+</head>
+<body class="profile-page">
+  <header class="max-w-lg mx-auto px-4 pt-4 flex items-center justify-between">
+    <a href="/" class="text-sm text-white/60 hover:text-white">← Map</a>
+    <div class="flex gap-3 text-white/70 text-sm">
+      {{if .IsOwn}}
+      <a href="/profile/edit" title="Settings">⚙</a>
+      <a href="/notifications" title="Notifications">🔔</a>
+      <form method="POST" action="/auth/logout" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button class="text-sm bg-indigo-600 text-white px-3 py-1 rounded-lg">Follow</button>
+        <button type="submit" title="Logout">⎋</button>
       </form>
-      <form method="POST" action="/users/{{.Profile.UserID}}/connect">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button class="text-sm border px-3 py-1 rounded-lg">Connect</button>
-      </form>
+      {{else}}
+      <a href="/">Home</a>
+      {{end}}
     </div>
-    {{end}}
-  </div>
-  {{if .Profile.Bio}}<p class="mt-4">{{.Profile.Bio}}</p>{{end}}
-  {{if .Tags}}
-  <div class="mt-4 flex flex-wrap gap-2">
-    {{range .Tags}}<span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">#{{.Name}}</span>{{end}}
-  </div>
-  {{end}}
-</div>
-</main>
-<script src="/static/js/app.js"></script>
+  </header>
+
+  <main class="max-w-lg mx-auto px-4 py-6 space-y-5">
+    <section class="fn-card p-5 text-center relative">
+      <div class="absolute left-4 top-5 flex flex-col gap-2">
+        <a href="/events" class="fn-icon text-xs" title="Events">📅</a>
+        <a href="/connections" class="fn-icon text-xs" title="Meet">☕</a>
+        <a href="/messages" class="fn-icon text-xs" title="Chat">💬</a>
+        {{if .IsOwn}}<a href="/profile/edit" class="fn-icon text-xs" title="Edit">✎</a>{{end}}
+      </div>
+
+      <div class="mx-auto w-28 h-28 rounded-full overflow-hidden border-4 border-[#2a3160] bg-[#252b4a] flex items-center justify-center text-3xl font-bold text-indigo-200">
+        {{if .Profile.ProfilePhotoURL}}
+          <img src="{{.Profile.ProfilePhotoURL}}" alt="" class="w-full h-full object-cover">
+        {{else}}
+          {{.Initial}}
+        {{end}}
+      </div>
+
+      <h1 class="mt-4 text-2xl font-bold tracking-tight">{{.Profile.FullName}}</h1>
+      {{if .Role}}<p class="text-[#8ab4ff] text-sm mt-1">{{.Role}}</p>{{end}}
+
+      {{if .IsOwn}}
+      <p class="mt-2 text-sm text-white/50 flex items-center justify-center gap-2" x-data="{ show: false }">
+        <span x-text="show ? '{{.Email}}' : '{{.MaskedEmail}}'"></span>
+        <button type="button" class="text-white/40 hover:text-white" @click="show = !show" title="Toggle email">👁</button>
+      </p>
+      {{end}}
+
+      <div class="mt-5 grid grid-cols-4 gap-2 text-center text-xs text-white/55">
+        <div><div class="text-white font-semibold text-base">{{.Stats.Following}}</div>Following</div>
+        <div><div class="text-white font-semibold text-base">{{.Stats.Followers}}</div>Followers</div>
+        <div><div class="text-white font-semibold text-base">{{.Stats.Views}}</div>Views</div>
+        <div><div class="text-white font-semibold text-base">{{.Stats.Interactions}}</div>Interactions</div>
+      </div>
+
+      {{if not .IsOwn}}
+      <div class="mt-5 flex gap-2 justify-center">
+        <form method="POST" action="/users/{{.Profile.UserID}}/follow">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button class="bg-[var(--fn-accent)] text-white text-sm px-4 py-2 rounded-full">Follow</button>
+        </form>
+        <form method="POST" action="/users/{{.Profile.UserID}}/connect">
+          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+          <button class="border border-white/20 text-sm px-4 py-2 rounded-full">Connect</button>
+        </form>
+      </div>
+      {{end}}
+    </section>
+
+    <section class="fn-card px-4 py-2">
+      <div class="fn-row items-start">
+        <span class="fn-icon">📍</span>
+        <div class="text-left">
+          <p class="font-medium">Location</p>
+          {{if .Address.OK}}
+            <p class="text-sm text-[var(--fn-muted)]">{{if .City}}{{.City}}{{else}}Pinned location{{end}}</p>
+            {{if .Region}}<p class="text-sm text-[var(--fn-muted)]">{{.Region}}</p>{{end}}
+          {{else}}
+            <p class="text-sm text-[var(--fn-muted)]">{{if .IsOwn}}Not set — <a class="text-[#8ab4ff]" href="/profile/edit">add on map</a>{{else}}Hidden{{end}}</p>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="fn-row items-start">
+        <span class="fn-icon">👤</span>
+        <div class="text-left flex-1">
+          <p class="font-medium">About</p>
+          <p class="text-sm text-[var(--fn-muted)] mt-1">{{if .Profile.About}}{{.Profile.About}}{{else if .Profile.Bio}}{{.Profile.Bio}}{{else}}No about yet.{{end}}</p>
+          {{if .Tags}}
+          <div class="mt-2">{{range .Tags}}<span class="fn-pill">{{.Name}}</span>{{end}}</div>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="fn-row items-start">
+        <span class="fn-icon">♥</span>
+        <div class="text-left flex-1">
+          <p class="font-medium">Interest Areas</p>
+          {{if .Skills}}
+          <div class="mt-2">{{range .Skills}}<span class="fn-pill">{{.Name}}</span>{{end}}</div>
+          {{else}}
+          <p class="text-sm text-[var(--fn-muted)] mt-1">{{if .IsOwn}}Add interests in edit profile.{{else}}None listed.{{end}}</p>
+          {{end}}
+        </div>
+      </div>
+
+      <details class="fn-row items-start" {{if .SocialLinks}}open{{end}}>
+        <summary class="flex gap-4 w-full items-center">
+          <span class="fn-icon">🌐</span>
+          <span class="font-medium flex-1 text-left">Social Media</span>
+          <span class="text-white/40">▾</span>
+        </summary>
+        <div class="pl-14 pb-3 flex flex-wrap gap-2">
+          {{if .SocialLinks}}
+            {{range .SocialLinks}}
+            <a href="{{.URL}}" target="_blank" rel="noopener" class="fn-pill capitalize">{{.Platform}}</a>
+            {{end}}
+          {{else}}
+            <p class="text-sm text-[var(--fn-muted)]">{{if $.IsOwn}}<a href="/profile/edit" class="text-[#8ab4ff]">Add links</a>{{else}}No links yet{{end}}</p>
+          {{end}}
+        </div>
+      </details>
+
+      <details class="fn-row items-start">
+        <summary class="flex gap-4 w-full items-center">
+          <span class="fn-icon">🎥</span>
+          <span class="font-medium flex-1 text-left">1-Minute Pitch</span>
+          <span class="text-white/40">▾</span>
+        </summary>
+        <div class="pl-14 pb-3">
+          {{if .Profile.PitchURL}}
+            <a href="{{.Profile.PitchURL}}" target="_blank" rel="noopener" class="fn-pill">Watch pitch</a>
+          {{else if .IsOwn}}
+            <a href="/profile/edit" class="fn-pill">Add</a>
+          {{else}}
+            <p class="text-sm text-[var(--fn-muted)]">No pitch yet</p>
+          {{end}}
+        </div>
+      </details>
+
+      <details class="fn-row items-start" open>
+        <summary class="flex gap-4 w-full items-center">
+          <span class="fn-icon">👥</span>
+          <span class="font-medium flex-1 text-left">Friends</span>
+          <span class="text-white/40">▾</span>
+        </summary>
+        <div class="pl-14 pb-3 space-y-2">
+          {{if .Friends}}
+            {{range .Friends}}
+            <a href="/users/{{.Username}}" class="block text-sm text-[#8ab4ff]">{{.FullName}} <span class="text-white/40">@{{.Username}}</span></a>
+            {{end}}
+          {{else}}
+            <p class="text-sm text-[var(--fn-muted)]">No friends yet</p>
+          {{end}}
+        </div>
+      </details>
+    </section>
+
+    <p class="text-center italic text-white/40 text-sm px-6">“{{.Quote}}”</p>
+
+    <div class="flex justify-center gap-3 pb-2">
+      {{range .SocialLinks}}
+      <a href="{{.URL}}" target="_blank" rel="noopener" class="fn-icon" title="{{.Platform}}">↗</a>
+      {{end}}
+    </div>
+
+    <footer class="text-center text-[11px] text-white/35 pb-8 space-x-3">
+      <a href="#" class="underline">Privacy Policy</a>
+      <a href="#" class="underline">Security &amp; Trust</a>
+      <a href="#" class="underline">Terms of Service</a>
+    </footer>
+  </main>
+
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </body>
 </html>
 {{end}}

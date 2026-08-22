@@ -91,10 +91,41 @@ func (ctrl *Controller) UpdateLiveLocation(c *gin.Context) {
 		}
 	}
 	if err := ctrl.svc.UpdateLiveLocation(c.Request.Context(), u.ID, eventID, lat, lng); err != nil {
-		c.JSON(403, gin.H{"error": "live location not enabled"})
+		ctrl.log.Error("live location update failed", "error", err)
+		c.JSON(500, gin.H{"error": "failed to update live location"})
 		return
 	}
-	c.JSON(200, gin.H{"ok": true})
+	c.JSON(200, gin.H{"ok": true, "live": true})
+}
+
+func (ctrl *Controller) StartLiveLocation(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	if err := ctrl.svc.EnableLiveSharing(c.Request.Context(), u.ID); err != nil {
+		c.JSON(500, gin.H{"error": "failed to enable live location"})
+		return
+	}
+	lat, _ := strconv.ParseFloat(c.PostForm("lat"), 64)
+	lng, _ := strconv.ParseFloat(c.PostForm("lng"), 64)
+	if lat != 0 || lng != 0 {
+		_ = ctrl.svc.UpdateLiveLocation(c.Request.Context(), u.ID, nil, lat, lng)
+	}
+	c.JSON(200, gin.H{"ok": true, "live": true})
+}
+
+func (ctrl *Controller) LiveStatus(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	c.JSON(200, gin.H{
+		"ok":   true,
+		"live": ctrl.svc.IsLiveSharing(c.Request.Context(), u.ID),
+	})
 }
 
 func (ctrl *Controller) StopLiveLocation(c *gin.Context) {
@@ -109,5 +140,5 @@ func (ctrl *Controller) StopLiveLocation(c *gin.Context) {
 		eventID = &id
 	}
 	_ = ctrl.svc.StopLiveLocation(c.Request.Context(), u.ID, eventID)
-	c.JSON(200, gin.H{"ok": true})
+	c.JSON(200, gin.H{"ok": true, "live": false})
 }

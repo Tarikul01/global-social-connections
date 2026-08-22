@@ -105,11 +105,14 @@ func (r *Repository) GetSessionByToken(ctx context.Context, tokenHash string) (*
 	var s Session
 	var u User
 	err := r.pool.QueryRow(ctx, `
-		SELECT s.id, s.user_id, s.expires_at, u.id, u.email, u.username, u.status, u.created_at
+		SELECT s.id, s.user_id, s.expires_at,
+			u.id, u.email, u.username, u.status, u.created_at,
+			COALESCE(p.onboarding_completed, false)
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
+		LEFT JOIN profiles p ON p.user_id = u.id
 		WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.deleted_at IS NULL
-	`, tokenHash).Scan(&s.ID, &s.UserID, &s.ExpiresAt, &u.ID, &u.Email, &u.Username, &u.Status, &u.CreatedAt)
+	`, tokenHash).Scan(&s.ID, &s.UserID, &s.ExpiresAt, &u.ID, &u.Email, &u.Username, &u.Status, &u.CreatedAt, &u.OnboardingCompleted)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -187,6 +190,18 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*User, string
 	return u, token, nil
 }
 
+func (s *Service) IssueSession(ctx context.Context, userID uuid.UUID, ip, ua string) (string, error) {
+	token, err := security.GenerateToken(32)
+	if err != nil {
+		return "", err
+	}
+	_, err = s.repo.CreateSession(ctx, userID, security.HashToken(token), ip, ua, time.Now().Add(s.cfg.SessionTTL))
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 func (s *Service) Login(ctx context.Context, in LoginInput, ip, ua string) (*User, string, error) {
 	u, hash, err := s.repo.GetByEmail(ctx, in.Email)
 	if err != nil {
@@ -201,14 +216,13 @@ func (s *Service) Login(ctx context.Context, in LoginInput, ip, ua string) (*Use
 		return nil, "", ErrInvalidCredentials
 	}
 	_ = s.repo.ResetFailedLogin(ctx, u.ID)
-	token, err := security.GenerateToken(32)
+	token, err := s.IssueSession(ctx, u.ID, ip, ua)
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.repo.CreateSession(ctx, u.ID, security.HashToken(token), ip, ua, time.Now().Add(s.cfg.SessionTTL))
-	if err != nil {
-		return nil, "", err
-	}
+	_ = s.repo.pool.QueryRow(ctx, `
+		SELECT COALESCE(onboarding_completed, false) FROM profiles WHERE user_id=$1
+	`, u.ID).Scan(&u.OnboardingCompleted)
 	return u, token, nil
 }
 

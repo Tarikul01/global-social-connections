@@ -15,6 +15,7 @@ type User struct {
 	FailedLoginAttempts int
 	LockedUntil         *time.Time
 	CreatedAt           time.Time
+	OnboardingCompleted bool
 }
 
 type Session struct {
