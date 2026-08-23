@@ -3,6 +3,8 @@ package event
 import (
 	"context"
 	"errors"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/findneighbour/findneighbour/internal/database"
@@ -12,9 +14,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrNotAuthorized = errors.New("not authorized")
-var ErrCapacityFull = errors.New("event is full")
-var ErrInvalidState = errors.New("invalid state")
+var (
+	ErrNotAuthorized   = errors.New("not authorized")
+	ErrCapacityFull    = errors.New("event is full")
+	ErrInvalidState    = errors.New("invalid state")
+	ErrPrivateEvent    = errors.New("this is a private event — you need an invitation")
+	ErrAlreadyMember   = errors.New("already a member of this event")
+	ErrCannotJoinOwn   = errors.New("you cannot join your own event")
+	ErrUserNotFound    = errors.New("user not found")
+	ErrAlreadyInvited  = errors.New("user already invited")
+)
 
 type Event struct {
 	ID                  uuid.UUID
@@ -35,6 +44,84 @@ type Event struct {
 	MemberCount         int
 }
 
+type JoinRequestView struct {
+	ID       uuid.UUID
+	UserID   uuid.UUID
+	Username string
+	FullName string
+	Message  string
+}
+
+type InvitationView struct {
+	ID              uuid.UUID
+	InviteeID       uuid.UUID
+	Username        string
+	Email           string
+	FullName        string
+	Status          string
+	InviterID       uuid.UUID
+	InviterUsername string
+	InviterName     string
+}
+
+type HostView struct {
+	UserID    uuid.UUID
+	Username  string
+	FullName  string
+	Role      string
+	IsCreator bool
+}
+
+type UserSearchResult struct {
+	ID       uuid.UUID `json:"id"`
+	Username string    `json:"username"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+}
+
+type InvitationListPage struct {
+	Items      []InvitationView
+	Total      int
+	Page       int
+	PerPage    int
+	TotalPages int
+	Accepted   int
+	Pending    int
+	Declined   int
+}
+
+type BrowseUserView struct {
+	ID             uuid.UUID
+	Username       string
+	Email          string
+	FullName       string
+	AlreadyInvited bool
+	IsMember       bool
+}
+
+type BrowseUsersPage struct {
+	Items      []BrowseUserView
+	Total      int
+	Page       int
+	PerPage    int
+	TotalPages int
+}
+
+type ShowContext struct {
+	Event               Event
+	IsCreator           bool
+	IsHost              bool
+	IsMember            bool
+	HasPendingJoin      bool
+	MyInvitationID      *uuid.UUID
+	PendingJoinRequests []JoinRequestView
+	Hosts               []HostView
+	Invitations         InvitationListPage
+	AcceptedInvites     int
+	PendingInvites      int
+	TotalInvites        int
+}
+
 type Repository struct {
 	pool *pgxpool.Pool
 	db   *database.DB
@@ -47,6 +134,35 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) SetDB(db *database.DB) { r.db = db }
 
 func (r *Repository) Create(ctx context.Context, e Event) (*Event, error) {
+	if r.db == nil {
+		return r.createSimple(ctx, e)
+	}
+	var out Event
+	err := r.db.WithTx(ctx, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `
+			INSERT INTO events (creator_id, title, description, category, event_date, start_time, end_time,
+				location_name, geom, max_participants, visibility, live_location_enabled)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8, ST_SetSRID(ST_MakePoint($10,$9),4326)::geography, $11,$12,$13)
+			RETURNING id, creator_id, title, status
+		`, e.CreatorID, e.Title, e.Description, e.Category, e.EventDate, e.StartTime, e.EndTime,
+			e.LocationName, e.Latitude, e.Longitude, e.MaxParticipants, e.Visibility, e.LiveLocationEnabled,
+		).Scan(&out.ID, &out.CreatorID, &out.Title, &out.Status)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO event_members (event_id, user_id, role) VALUES ($1, $2, 'host')
+			ON CONFLICT (event_id, user_id) DO NOTHING
+		`, out.ID, e.CreatorID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, out.ID)
+}
+
+func (r *Repository) createSimple(ctx context.Context, e Event) (*Event, error) {
 	var out Event
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO events (creator_id, title, description, category, event_date, start_time, end_time,
@@ -56,7 +172,14 @@ func (r *Repository) Create(ctx context.Context, e Event) (*Event, error) {
 	`, e.CreatorID, e.Title, e.Description, e.Category, e.EventDate, e.StartTime, e.EndTime,
 		e.LocationName, e.Latitude, e.Longitude, e.MaxParticipants, e.Visibility, e.LiveLocationEnabled,
 	).Scan(&out.ID, &out.CreatorID, &out.Title, &out.Status)
-	return &out, err
+	if err != nil {
+		return nil, err
+	}
+	_, _ = r.pool.Exec(ctx, `
+		INSERT INTO event_members (event_id, user_id, role) VALUES ($1, $2, 'host')
+		ON CONFLICT (event_id, user_id) DO NOTHING
+	`, out.ID, e.CreatorID)
+	return r.GetByID(ctx, out.ID)
 }
 
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Event, error) {
@@ -103,6 +226,33 @@ func (r *Repository) List(ctx context.Context, limit int) ([]Event, error) {
 	return list, nil
 }
 
+func (r *Repository) IsHost(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM event_members
+			WHERE event_id=$1 AND user_id=$2 AND role IN ('host','co_host')
+		)
+	`, eventID, userID).Scan(&ok)
+	return ok, err
+}
+
+func (r *Repository) IsMember(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM event_members WHERE event_id=$1 AND user_id=$2)
+	`, eventID, userID).Scan(&ok)
+	return ok, err
+}
+
+func (r *Repository) HasPendingJoinRequest(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM event_join_requests WHERE event_id=$1 AND user_id=$2 AND status='pending')
+	`, eventID, userID).Scan(&ok)
+	return ok, err
+}
+
 func (r *Repository) CreateJoinRequest(ctx context.Context, eventID, userID uuid.UUID, message string) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO event_join_requests (event_id, user_id, message) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING
@@ -110,11 +260,36 @@ func (r *Repository) CreateJoinRequest(ctx context.Context, eventID, userID uuid
 	return err
 }
 
-func (r *Repository) AcceptJoin(ctx context.Context, eventID, reqID uuid.UUID) error {
-	if r.db == nil {
-		return errors.New("database not configured")
+func (r *Repository) ListPendingJoinRequests(ctx context.Context, eventID uuid.UUID) ([]JoinRequestView, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT ejr.id, ejr.user_id, u.username, COALESCE(p.full_name, u.username), COALESCE(ejr.message,'')
+		FROM event_join_requests ejr
+		JOIN users u ON u.id = ejr.user_id
+		LEFT JOIN profiles p ON p.user_id = u.id
+		WHERE ejr.event_id=$1 AND ejr.status='pending'
+		ORDER BY ejr.created_at ASC
+	`, eventID)
+	if err != nil {
+		return nil, err
 	}
-	return r.db.WithTx(ctx, func(tx pgx.Tx) error {
+	defer rows.Close()
+	var list []JoinRequestView
+	for rows.Next() {
+		var j JoinRequestView
+		if err := rows.Scan(&j.ID, &j.UserID, &j.Username, &j.FullName, &j.Message); err != nil {
+			return nil, err
+		}
+		list = append(list, j)
+	}
+	return list, nil
+}
+
+func (r *Repository) AcceptJoin(ctx context.Context, eventID, reqID uuid.UUID) (uuid.UUID, error) {
+	if r.db == nil {
+		return uuid.Nil, errors.New("database not configured")
+	}
+	var joinedUserID uuid.UUID
+	err := r.db.WithTx(ctx, func(tx pgx.Tx) error {
 		var userID uuid.UUID
 		var maxP, count int
 		err := tx.QueryRow(ctx, `
@@ -135,13 +310,317 @@ func (r *Repository) AcceptJoin(ctx context.Context, eventID, reqID uuid.UUID) e
 			return ErrInvalidState
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO event_members (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, eventID, userID)
+		joinedUserID = userID
 		return err
 	})
+	return joinedUserID, err
 }
 
 func (r *Repository) RejectJoin(ctx context.Context, reqID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `UPDATE event_join_requests SET status='rejected', responded_at=now() WHERE id=$1 AND status='pending'`, reqID)
 	return err
+}
+
+func (r *Repository) LookupUserByUsername(ctx context.Context, username string) (uuid.UUID, string, error) {
+	return r.lookupUser(ctx, username, false)
+}
+
+func (r *Repository) LookupUserByQuery(ctx context.Context, query string) (uuid.UUID, string, error) {
+	return r.lookupUser(ctx, query, true)
+}
+
+func (r *Repository) lookupUser(ctx context.Context, raw string, allowEmail bool) (uuid.UUID, string, error) {
+	q := strings.TrimSpace(strings.TrimPrefix(raw, "@"))
+	if q == "" {
+		return uuid.Nil, "", pgx.ErrNoRows
+	}
+	var id uuid.UUID
+	var fullName string
+	if allowEmail && strings.Contains(q, "@") {
+		err := r.pool.QueryRow(ctx, `
+			SELECT u.id, COALESCE(p.full_name, u.username)
+			FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+			WHERE lower(u.email) = lower($1) AND u.deleted_at IS NULL
+		`, q).Scan(&id, &fullName)
+		if err == nil {
+			return id, fullName, nil
+		}
+	}
+	err := r.pool.QueryRow(ctx, `
+		SELECT u.id, COALESCE(p.full_name, u.username)
+		FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+		WHERE u.username = $1 AND u.deleted_at IS NULL
+	`, q).Scan(&id, &fullName)
+	if err == nil {
+		return id, fullName, nil
+	}
+	if allowEmail {
+		err = r.pool.QueryRow(ctx, `
+			SELECT u.id, COALESCE(p.full_name, u.username)
+			FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+			WHERE u.username ILIKE $1 AND u.deleted_at IS NULL
+			ORDER BY u.username LIMIT 1
+		`, q).Scan(&id, &fullName)
+	}
+	return id, fullName, err
+}
+
+func (r *Repository) SearchUsers(ctx context.Context, eventID, excludeUserID uuid.UUID, query string, limit int) ([]UserSearchResult, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	pattern := "%" + q + "%"
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.username, u.email, COALESCE(p.full_name, u.username)
+		FROM users u
+		LEFT JOIN profiles p ON p.user_id = u.id
+		WHERE u.deleted_at IS NULL
+		  AND u.id <> $4
+		  AND NOT EXISTS (
+			SELECT 1 FROM event_members em
+			WHERE em.event_id = $3 AND em.user_id = u.id
+		  )
+		  AND (u.username ILIKE $1 OR u.email ILIKE $1 OR COALESCE(p.full_name,'') ILIKE $1)
+		ORDER BY
+			CASE WHEN u.username ILIKE $2 THEN 0 WHEN u.email ILIKE $2 THEN 1 ELSE 2 END,
+			u.username
+		LIMIT $5
+	`, pattern, q+"%", eventID, excludeUserID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []UserSearchResult
+	for rows.Next() {
+		var u UserSearchResult
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.FullName); err != nil {
+			return nil, err
+		}
+		list = append(list, u)
+	}
+	return list, nil
+}
+
+func (r *Repository) InvitationStats(ctx context.Context, eventID uuid.UUID) (accepted, pending, declined, total int, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE status='accepted'),
+			COUNT(*) FILTER (WHERE status='pending'),
+			COUNT(*) FILTER (WHERE status='declined'),
+			COUNT(*)
+		FROM event_invitations WHERE event_id=$1
+	`, eventID).Scan(&accepted, &pending, &declined, &total)
+	return
+}
+
+func (r *Repository) ListInvitationsPage(ctx context.Context, eventID uuid.UUID, page, perPage int) (InvitationListPage, error) {
+	if perPage <= 0 {
+		perPage = 10
+	}
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+	var out InvitationListPage
+	out.Page = page
+	out.PerPage = perPage
+	out.Accepted, out.Pending, out.Declined, out.Total, _ = r.InvitationStats(ctx, eventID)
+	if out.Total == 0 {
+		return out, nil
+	}
+	out.TotalPages = int(math.Ceil(float64(out.Total) / float64(perPage)))
+	rows, err := r.pool.Query(ctx, `
+		SELECT ei.id, ei.invitee_id, u.username, u.email, COALESCE(p.full_name, u.username), ei.status,
+			ei.inviter_id, inv.username, COALESCE(ip.full_name, inv.username)
+		FROM event_invitations ei
+		JOIN users u ON u.id = ei.invitee_id
+		LEFT JOIN profiles p ON p.user_id = ei.invitee_id
+		JOIN users inv ON inv.id = ei.inviter_id
+		LEFT JOIN profiles ip ON ip.user_id = ei.inviter_id
+		WHERE ei.event_id=$1
+		ORDER BY ei.created_at DESC
+		LIMIT $2 OFFSET $3
+	`, eventID, perPage, offset)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v InvitationView
+		if err := rows.Scan(&v.ID, &v.InviteeID, &v.Username, &v.Email, &v.FullName, &v.Status,
+			&v.InviterID, &v.InviterUsername, &v.InviterName); err != nil {
+			return out, err
+		}
+		out.Items = append(out.Items, v)
+	}
+	return out, nil
+}
+
+func (r *Repository) ListInvitations(ctx context.Context, eventID uuid.UUID) ([]InvitationView, error) {
+	page, err := r.ListInvitationsPage(ctx, eventID, 1, 1000)
+	return page.Items, err
+}
+
+func (r *Repository) ListHosts(ctx context.Context, eventID uuid.UUID) ([]HostView, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT em.user_id, u.username, COALESCE(p.full_name, u.username), em.role, (e.creator_id = em.user_id)
+		FROM event_members em
+		JOIN users u ON u.id = em.user_id
+		LEFT JOIN profiles p ON p.user_id = em.user_id
+		JOIN events e ON e.id = em.event_id
+		WHERE em.event_id=$1 AND em.role IN ('host','co_host')
+		ORDER BY CASE em.role WHEN 'host' THEN 0 ELSE 1 END, u.username
+	`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []HostView
+	for rows.Next() {
+		var h HostView
+		if err := rows.Scan(&h.UserID, &h.Username, &h.FullName, &h.Role, &h.IsCreator); err != nil {
+			return nil, err
+		}
+		list = append(list, h)
+	}
+	return list, nil
+}
+
+func (r *Repository) ListBrowseUsersPage(ctx context.Context, eventID uuid.UUID, page, perPage int) (BrowseUsersPage, error) {
+	if perPage <= 0 {
+		perPage = 10
+	}
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * perPage
+	var out BrowseUsersPage
+	out.Page = page
+	out.PerPage = perPage
+	_ = r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM users u WHERE u.deleted_at IS NULL`).Scan(&out.Total)
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.username, u.email, COALESCE(p.full_name, u.username),
+			EXISTS(SELECT 1 FROM event_invitations ei WHERE ei.event_id=$1 AND ei.invitee_id=u.id),
+			EXISTS(SELECT 1 FROM event_members em WHERE em.event_id=$1 AND em.user_id=u.id)
+		FROM users u
+		LEFT JOIN profiles p ON p.user_id = u.id
+		WHERE u.deleted_at IS NULL
+		ORDER BY COALESCE(p.full_name, u.username), u.username
+		LIMIT $2 OFFSET $3
+	`, eventID, perPage, offset)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b BrowseUserView
+		if err := rows.Scan(&b.ID, &b.Username, &b.Email, &b.FullName, &b.AlreadyInvited, &b.IsMember); err != nil {
+			return out, err
+		}
+		out.Items = append(out.Items, b)
+	}
+	if out.Total > 0 {
+		out.TotalPages = int(math.Ceil(float64(out.Total) / float64(perPage)))
+	}
+	return out, nil
+}
+
+func (r *Repository) PromoteCoHost(ctx context.Context, eventID, targetID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE event_members SET role='co_host'
+		WHERE event_id=$1 AND user_id=$2 AND role='member'
+	`, eventID, targetID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInvalidState
+	}
+	return nil
+}
+
+func (r *Repository) CreateInvitation(ctx context.Context, eventID, inviterID, inviteeID uuid.UUID) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO event_invitations (event_id, inviter_id, invitee_id)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (event_id, invitee_id) DO UPDATE SET
+			status = CASE WHEN event_invitations.status IN ('declined','pending') THEN 'pending' ELSE event_invitations.status END,
+			inviter_id = EXCLUDED.inviter_id,
+			responded_at = NULL
+		RETURNING id
+	`, eventID, inviterID, inviteeID).Scan(&id)
+	return id, err
+}
+
+func (r *Repository) GetPendingInvitationID(ctx context.Context, eventID, userID uuid.UUID) (*uuid.UUID, error) {
+	var id uuid.UUID
+	err := r.pool.QueryRow(ctx, `
+		SELECT id FROM event_invitations
+		WHERE event_id=$1 AND invitee_id=$2 AND status='pending'
+	`, eventID, userID).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
+}
+
+func (r *Repository) InvitationStatus(ctx context.Context, invID, inviteeID uuid.UUID) (string, error) {
+	var status string
+	err := r.pool.QueryRow(ctx, `
+		SELECT status FROM event_invitations WHERE id=$1 AND invitee_id=$2
+	`, invID, inviteeID).Scan(&status)
+	return status, err
+}
+
+func (r *Repository) AcceptInvitation(ctx context.Context, eventID, invID, userID uuid.UUID) error {
+	if r.db == nil {
+		return errors.New("database not configured")
+	}
+	return r.db.WithTx(ctx, func(tx pgx.Tx) error {
+		var inviteeID uuid.UUID
+		var maxP, count int
+		err := tx.QueryRow(ctx, `
+			SELECT ei.invitee_id, e.max_participants,
+				(SELECT COUNT(*) FROM event_members em WHERE em.event_id = e.id)
+			FROM event_invitations ei
+			JOIN events e ON e.id = ei.event_id
+			WHERE ei.id=$1 AND ei.event_id=$2 AND ei.status='pending' AND e.status='published'
+		`, invID, eventID).Scan(&inviteeID, &maxP, &count)
+		if err != nil {
+			return err
+		}
+		if inviteeID != userID {
+			return ErrNotAuthorized
+		}
+		if count >= maxP {
+			return ErrCapacityFull
+		}
+		tag, err := tx.Exec(ctx, `UPDATE event_invitations SET status='accepted', responded_at=now() WHERE id=$1`, invID)
+		if err != nil || tag.RowsAffected() == 0 {
+			return ErrInvalidState
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO event_members (event_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, eventID, userID)
+		return err
+	})
+}
+
+func (r *Repository) DeclineInvitation(ctx context.Context, invID, userID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE event_invitations SET status='declined', responded_at=now()
+		WHERE id=$1 AND invitee_id=$2 AND status='pending'
+	`, invID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInvalidState
+	}
+	return nil
 }
 
 func (r *Repository) ToggleLiveConsent(ctx context.Context, eventID, userID uuid.UUID, consented bool) error {
@@ -170,6 +649,12 @@ func (s *Service) Create(ctx context.Context, e Event) (*Event, error) {
 	if e.MaxParticipants <= 0 {
 		e.MaxParticipants = 20
 	}
+	if e.Visibility == "" {
+		e.Visibility = "public"
+	}
+	if e.Visibility != "public" && e.Visibility != "private" {
+		e.Visibility = "public"
+	}
 	return s.repo.Create(ctx, e)
 }
 
@@ -181,6 +666,43 @@ func (s *Service) List(ctx context.Context) ([]Event, error) {
 	return s.repo.List(ctx, 50)
 }
 
+func (s *Service) ShowContext(ctx context.Context, eventID, viewerID uuid.UUID, invPage, _ int) (*ShowContext, error) {
+	e, err := s.repo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	sc := &ShowContext{Event: *e}
+	if viewerID == uuid.Nil {
+		return sc, nil
+	}
+	sc.IsCreator = e.CreatorID == viewerID
+	sc.IsHost, _ = s.repo.IsHost(ctx, eventID, viewerID)
+	sc.IsMember, _ = s.repo.IsMember(ctx, eventID, viewerID)
+	sc.HasPendingJoin, _ = s.repo.HasPendingJoinRequest(ctx, eventID, viewerID)
+	sc.MyInvitationID, _ = s.repo.GetPendingInvitationID(ctx, eventID, viewerID)
+
+	if sc.IsHost {
+		sc.PendingJoinRequests, _ = s.repo.ListPendingJoinRequests(ctx, eventID)
+		sc.Hosts, _ = s.repo.ListHosts(ctx, eventID)
+		sc.Invitations, _ = s.repo.ListInvitationsPage(ctx, eventID, invPage, 10)
+		sc.AcceptedInvites = sc.Invitations.Accepted
+		sc.PendingInvites = sc.Invitations.Pending
+		sc.TotalInvites = sc.Invitations.Total
+	}
+	return sc, nil
+}
+
+func (s *Service) assertHost(ctx context.Context, eventID, userID uuid.UUID) error {
+	ok, err := s.repo.IsHost(ctx, eventID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotAuthorized
+	}
+	return nil
+}
+
 func (s *Service) JoinRequest(ctx context.Context, eventID, userID uuid.UUID, message string) error {
 	e, err := s.repo.GetByID(ctx, eventID)
 	if err != nil {
@@ -189,29 +711,135 @@ func (s *Service) JoinRequest(ctx context.Context, eventID, userID uuid.UUID, me
 	if e.Status != "published" {
 		return ErrInvalidState
 	}
+	if e.CreatorID == userID {
+		return ErrCannotJoinOwn
+	}
+	host, _ := s.repo.IsHost(ctx, eventID, userID)
+	if host {
+		return ErrCannotJoinOwn
+	}
+	if e.Visibility == "private" {
+		return ErrPrivateEvent
+	}
+	member, _ := s.repo.IsMember(ctx, eventID, userID)
+	if member {
+		return ErrAlreadyMember
+	}
+	pending, _ := s.repo.HasPendingJoinRequest(ctx, eventID, userID)
+	if pending {
+		return ErrInvalidState
+	}
 	return s.repo.CreateJoinRequest(ctx, eventID, userID, message)
 }
 
-func (s *Service) AcceptJoin(ctx context.Context, eventID, reqID, creatorID uuid.UUID) error {
-	e, err := s.repo.GetByID(ctx, eventID)
-	if err != nil {
-		return err
-	}
-	if e.CreatorID != creatorID {
-		return ErrNotAuthorized
+func (s *Service) AcceptJoin(ctx context.Context, eventID, reqID, hostID uuid.UUID) (uuid.UUID, error) {
+	if err := s.assertHost(ctx, eventID, hostID); err != nil {
+		return uuid.Nil, err
 	}
 	return s.repo.AcceptJoin(ctx, eventID, reqID)
 }
 
-func (s *Service) RejectJoin(ctx context.Context, eventID, reqID, creatorID uuid.UUID) error {
+func (s *Service) RejectJoin(ctx context.Context, eventID, reqID, hostID uuid.UUID) error {
+	if err := s.assertHost(ctx, eventID, hostID); err != nil {
+		return err
+	}
+	return s.repo.RejectJoin(ctx, reqID)
+}
+
+func (s *Service) SearchUsers(ctx context.Context, eventID, excludeUserID uuid.UUID, query string) ([]UserSearchResult, error) {
+	return s.repo.SearchUsers(ctx, eventID, excludeUserID, query, 10)
+}
+
+func (s *Service) InviteUser(ctx context.Context, eventID, hostID, inviteeID uuid.UUID) (uuid.UUID, string, error) {
+	if err := s.assertHost(ctx, eventID, hostID); err != nil {
+		return uuid.Nil, "", err
+	}
+	if inviteeID == hostID {
+		return uuid.Nil, "", errors.New("cannot invite yourself")
+	}
+	member, _ := s.repo.IsMember(ctx, eventID, inviteeID)
+	if member {
+		return uuid.Nil, "", ErrAlreadyMember
+	}
+	var name string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(p.full_name, u.username) FROM users u
+		LEFT JOIN profiles p ON p.user_id=u.id WHERE u.id=$1
+	`, inviteeID).Scan(&name); err != nil {
+		return uuid.Nil, "", ErrUserNotFound
+	}
+	invID, err := s.repo.CreateInvitation(ctx, eventID, hostID, inviteeID)
+	return invID, name, err
+}
+
+func (s *Service) InviteByUsername(ctx context.Context, eventID, hostID uuid.UUID, query string) (invID, inviteeID uuid.UUID, fullName string, err error) {
+	if err := s.assertHost(ctx, eventID, hostID); err != nil {
+		return uuid.Nil, uuid.Nil, "", err
+	}
+	inviteeID, fullName, err = s.repo.LookupUserByQuery(ctx, query)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, "", ErrUserNotFound
+	}
+	if inviteeID == hostID {
+		return uuid.Nil, uuid.Nil, "", errors.New("cannot invite yourself")
+	}
+	member, _ := s.repo.IsMember(ctx, eventID, inviteeID)
+	if member {
+		return uuid.Nil, uuid.Nil, "", ErrAlreadyMember
+	}
+	invID, err = s.repo.CreateInvitation(ctx, eventID, hostID, inviteeID)
+	return invID, inviteeID, fullName, err
+}
+
+func (s *Service) InviteUsersBatch(ctx context.Context, eventID, hostID uuid.UUID, userIDs []uuid.UUID) (int, []string) {
+	var sent int
+	var errs []string
+	seen := map[uuid.UUID]bool{}
+	for _, id := range userIDs {
+		if id == uuid.Nil || seen[id] {
+			continue
+		}
+		seen[id] = true
+		invID, _, err := s.InviteUser(ctx, eventID, hostID, id)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		if invID != uuid.Nil {
+			sent++
+		}
+	}
+	return sent, errs
+}
+
+func (s *Service) PromoteCoHost(ctx context.Context, eventID, actorID, targetID uuid.UUID) error {
+	if err := s.assertHost(ctx, eventID, actorID); err != nil {
+		return err
+	}
 	e, err := s.repo.GetByID(ctx, eventID)
 	if err != nil {
 		return err
 	}
-	if e.CreatorID != creatorID {
-		return ErrNotAuthorized
+	if targetID == e.CreatorID {
+		return ErrInvalidState
 	}
-	return s.repo.RejectJoin(ctx, reqID)
+	member, _ := s.repo.IsMember(ctx, eventID, targetID)
+	if !member {
+		return ErrInvalidState
+	}
+	return s.repo.PromoteCoHost(ctx, eventID, targetID)
+}
+
+func (s *Service) AcceptInvitation(ctx context.Context, eventID, invID, userID uuid.UUID) error {
+	return s.repo.AcceptInvitation(ctx, eventID, invID, userID)
+}
+
+func (s *Service) DeclineInvitation(ctx context.Context, invID, userID uuid.UUID) error {
+	return s.repo.DeclineInvitation(ctx, invID, userID)
+}
+
+func (s *Service) InvitationStatus(ctx context.Context, invID, inviteeID uuid.UUID) (string, error) {
+	return s.repo.InvitationStatus(ctx, invID, inviteeID)
 }
 
 func (s *Service) ToggleLiveConsent(ctx context.Context, eventID, userID uuid.UUID, consented bool) error {

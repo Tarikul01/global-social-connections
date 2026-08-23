@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>{{template "partials/head.html" .}}</head>
-<body class="fn-theme min-h-screen">
+<body class="fn-theme fn-has-rail min-h-screen">
 {{template "partials/nav.html" .}}
 <main class="max-w-6xl mx-auto px-4 py-8">
 <div class="flex justify-between items-center mb-6">
@@ -13,7 +13,7 @@
   {{range .Events}}
   <a href="/events/{{.ID}}" class="block p-4 bg-white rounded-xl border hover:border-indigo-300">
     <h2 class="font-semibold">{{.Title}}</h2>
-    <p class="text-sm text-slate-500">{{.EventDate.Format "Jan 2, 2006"}} · {{.LocationName}} · {{.MemberCount}} members</p>
+    <p class="text-sm text-slate-500">{{.EventDate.Format "Jan 2, 2006"}} · {{.LocationName}} · {{.MemberCount}} going · {{if eq .Visibility "private"}}Private{{else}}Public{{end}}</p>
   </a>
   {{else}}<p class="text-slate-500">No events yet.</p>{{end}}
 </div>

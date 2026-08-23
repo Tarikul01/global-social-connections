@@ -17,8 +17,8 @@
         <input type="email" name="email" required class="w-full border rounded-lg px-3 py-2">
       </div>
       <div>
-        <label class="block text-sm font-medium mb-1 text-slate-300">Password</label>
-        <input type="password" name="password" required class="w-full border rounded-lg px-3 py-2">
+        <label for="password" class="block text-sm font-medium mb-1 text-slate-300">Password</label>
+        {{template "partials/password_field.html" (dict "Name" "password" "ID" "password" "Required" true "Autocomplete" "current-password")}}
       </div>
       <button type="submit" class="fn-btn fn-btn-primary w-full">Login</button>
     </form>

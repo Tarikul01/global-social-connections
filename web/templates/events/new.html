@@ -2,25 +2,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>{{template "partials/head.html" .}}</head>
-<body class="fn-theme min-h-screen">
+<body class="fn-theme fn-has-rail min-h-screen">
 {{template "partials/nav.html" .}}
-<main class="max-w-6xl mx-auto px-4 py-8">
-<h1 class="text-2xl font-bold mb-6">Create Event</h1>
-<form method="POST" action="/events" class="bg-white rounded-xl border p-6 space-y-4 max-w-xl">
-  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-  <input type="hidden" name="lat" value="23.8103"><input type="hidden" name="lng" value="90.4125">
-  <div><label class="block text-sm mb-1">Title</label><input name="title" required class="w-full border rounded-lg px-3 py-2"></div>
-  <div><label class="block text-sm mb-1">Description</label><textarea name="description" rows="3" class="w-full border rounded-lg px-3 py-2"></textarea></div>
-  <div><label class="block text-sm mb-1">Date</label><input type="date" name="event_date" required class="w-full border rounded-lg px-3 py-2"></div>
-  <div class="grid grid-cols-2 gap-4">
-    <div><label class="block text-sm mb-1">Start</label><input type="time" name="start_time" required class="w-full border rounded-lg px-3 py-2"></div>
-    <div><label class="block text-sm mb-1">End</label><input type="time" name="end_time" class="w-full border rounded-lg px-3 py-2"></div>
-  </div>
-  <div><label class="block text-sm mb-1">Location</label><input name="location_name" class="w-full border rounded-lg px-3 py-2"></div>
-  <div><label class="block text-sm mb-1">Max Participants</label><input type="number" name="max_participants" value="20" min="1" class="w-full border rounded-lg px-3 py-2"></div>
-  <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Create</button>
-</form>
+<main class="max-w-2xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold mb-2">Create Event</h1>
+  <p class="text-slate-500 text-sm mb-6">Pick a title, time, and drop a pin for the meetup spot.</p>
+  {{if .Error}}<p class="text-red-400 mb-4">{{.Error}}</p>{{end}}
+
+  <form method="POST" action="/events" class="bg-white rounded-xl border p-6 space-y-5">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <input type="hidden" name="lat" id="lat" value="{{.Lat}}">
+    <input type="hidden" name="lng" id="lng" value="{{.Lng}}">
+    <input type="hidden" name="city" id="city" value="">
+    <input type="hidden" name="region" id="region" value="">
+    <input type="hidden" name="country" id="country" value="">
+
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Title</label>
+      <input name="title" required class="w-full border rounded-lg px-3 py-2" placeholder="Coffee meetup">
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Description</label>
+      <textarea name="description" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="What is this event about?"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Date</label>
+      <input type="date" name="event_date" required class="w-full border rounded-lg px-3 py-2">
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Start</label>
+        <input type="time" name="start_time" required class="w-full border rounded-lg px-3 py-2">
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1 text-slate-300">End</label>
+        <input type="time" name="end_time" class="w-full border rounded-lg px-3 py-2">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Location name</label>
+      <input name="location_name" id="location_name" class="w-full border rounded-lg px-3 py-2" placeholder="Auto-filled from the map pin — you can edit">
+      <p class="text-xs text-slate-500 mt-1">Drop a pin below; the place name fills in automatically.</p>
+    </div>
+
+    {{template "partials/location_picker.html" .}}
+
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Max Participants</label>
+      <input type="number" name="max_participants" value="20" min="1" class="w-full border rounded-lg px-3 py-2">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-2 text-slate-300">Who can join?</label>
+      <div class="space-y-2 text-sm">
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="visibility" value="public" checked class="mt-1">
+          <span><strong class="text-white">Public</strong> — anyone can request to join; you approve each request.</span>
+        </label>
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="visibility" value="private" class="mt-1">
+          <span><strong class="text-white">Private</strong> — invite only; only people you invite can join.</span>
+        </label>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium mb-1 text-slate-300">Invite people (optional)</label>
+      <input name="invite_usernames" class="w-full border rounded-lg px-3 py-2" placeholder="username1, username2">
+      <p class="text-xs text-slate-500 mt-1">Comma-separated usernames — they will get a notification.</p>
+    </div>
+
+    <button type="submit" class="fn-btn fn-btn-primary">Create</button>
+  </form>
 </main>
+<script src="/static/js/location-picker.js"></script>
+<script>
+  initLocationPicker({
+    rootId: 'location-picker-root',
+    mapId: 'location-picker',
+    latInput: 'lat',
+    lngInput: 'lng',
+    cityInput: 'city',
+    regionInput: 'region',
+    countryInput: 'country',
+    locationNameInput: 'location_name',
+    labelId: 'picked-coords',
+    lat: {{.Lat}},
+    lng: {{.Lng}},
+    approxRadiusM: 120
+  });
+</script>
 </body>
 </html>
 {{end}}

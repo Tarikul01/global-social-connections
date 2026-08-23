@@ -13,7 +13,13 @@
   <link rel="stylesheet" href="/static/css/app.css">
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #0f172a; }
-    #map { position: absolute; inset: 0; z-index: 0; }
+    body.fn-has-rail #map {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 0;
+    }
 
     .disc-marker {
       width: 46px; height: 46px; border-radius: 9999px;
@@ -30,6 +36,10 @@
     .disc-marker.offline { background: #64748b; }
     .disc-marker.me { background: #e11d48; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.35), 0 3px 10px rgba(5,8,22,.45); }
     .disc-marker.live { background: #22c55e; }
+    .disc-marker.me.live {
+      background: #22c55e !important;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.45), 0 3px 10px rgba(5,8,22,.45) !important;
+    }
     .disc-marker .dot {
       position: absolute; right: 0; bottom: 0;
       width: 12px; height: 12px; border-radius: 9999px;
@@ -37,6 +47,70 @@
     }
     .disc-marker.offline .dot { background: #94a3b8; }
     .disc-marker.live .dot { background: #facc15; }
+
+    .leaflet-marker-icon.leaflet-div-icon {
+      overflow: visible !important;
+      background: transparent !important;
+      border: none !important;
+    }
+
+    /* Live sharing — heartbeat pulse on your marker */
+    .disc-marker-wrap.is-live-sharing {
+      position: relative;
+      width: 46px;
+      height: 46px;
+      overflow: visible;
+    }
+    .disc-marker-wrap.is-live-sharing .disc-marker {
+      position: relative;
+      z-index: 3;
+      overflow: visible;
+      animation: disc-heartbeat 1.6s ease-in-out infinite;
+    }
+    .disc-marker-wrap.is-live-sharing .live-ring {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 46px;
+      height: 46px;
+      margin: -23px 0 0 -23px;
+      border-radius: 9999px;
+      border: 2px solid rgba(34, 197, 94, 0.7);
+      pointer-events: none;
+      z-index: 1;
+      animation: disc-live-ring 1.6s ease-out infinite;
+    }
+    .disc-marker-wrap.is-live-sharing .live-ring--b {
+      animation-delay: 0.32s;
+      border-color: rgba(250, 204, 21, 0.55);
+    }
+    @keyframes disc-heartbeat {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 3px 10px rgba(5,8,22,.45); }
+      12% { transform: scale(1.14); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.55), 0 3px 14px rgba(34,197,94,.35); }
+      24% { transform: scale(1); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 3px 10px rgba(5,8,22,.45); }
+      36% { transform: scale(1.09); box-shadow: 0 0 0 5px rgba(250, 204, 21, 0.45), 0 3px 12px rgba(250,204,21,.25); }
+      52% { transform: scale(1); }
+      72% { transform: scale(1.03); }
+      88% { transform: scale(1); }
+    }
+    @keyframes disc-live-ring {
+      0% { transform: scale(0.85); opacity: 0.85; }
+      45% { transform: scale(1.35); opacity: 0.45; }
+      100% { transform: scale(2.4); opacity: 0; }
+    }
+
+    .disc-btn.is-live-sharing {
+      animation: disc-heartbeat-btn 1.6s ease-in-out infinite;
+      background: #22c55e !important;
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55), 0 6px 18px rgba(34, 197, 94, 0.45) !important;
+    }
+    @keyframes disc-heartbeat-btn {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5), 0 6px 18px rgba(34, 197, 94, 0.4); }
+      14% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.15), 0 6px 22px rgba(34, 197, 94, 0.55); }
+      28% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4), 0 6px 18px rgba(34, 197, 94, 0.4); }
+      40% { transform: scale(1.06); box-shadow: 0 0 0 5px rgba(250, 204, 21, 0.2), 0 6px 20px rgba(250, 204, 21, 0.35); }
+      55% { transform: scale(1); }
+    }
 
     .disc-controls {
       position: absolute;
@@ -67,102 +141,6 @@
     .disc-btn.is-active { background: #facc15; color: #0f172a; box-shadow: 0 0 0 3px rgba(250,204,21,.4); }
     .disc-btn.is-locating { animation: pulse-btn 1s ease infinite; }
     @keyframes pulse-btn { 50% { transform: scale(1.08); background: #60a5fa; } }
-
-    .disc-menu-btn {
-      position: absolute;
-      top: 1rem;
-      left: 1rem;
-      z-index: 1100;
-      width: 2.75rem;
-      height: 2.75rem;
-      border-radius: 9999px;
-      border: none;
-      background: rgba(15, 23, 42, 0.88);
-      color: #fff;
-      box-shadow: 0 6px 18px rgba(0,0,0,.28);
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.2rem;
-      backdrop-filter: blur(8px);
-    }
-
-    .disc-backdrop {
-      position: absolute;
-      inset: 0;
-      z-index: 1050;
-      background: rgba(2, 6, 23, 0.45);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .28s ease;
-    }
-    body.nav-open .disc-backdrop {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .disc-sidenav {
-      position: absolute;
-      top: 0;
-      left: 0;
-      bottom: 0;
-      width: min(300px, 86vw);
-      z-index: 1200;
-      background: #0b1224;
-      color: #fff;
-      border-right: 1px solid rgba(148, 163, 184, 0.16);
-      box-shadow: 12px 0 40px rgba(0,0,0,.45);
-      transform: translateX(-105%);
-      transition: transform .32s cubic-bezier(.22, 1, .36, 1);
-      display: flex;
-      flex-direction: column;
-      padding: 1.1rem 0.9rem 1.25rem;
-    }
-    body.nav-open .disc-sidenav { transform: translateX(0); }
-
-    .disc-sidenav__brand {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.35rem 0.4rem 1rem;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      margin-bottom: 0.75rem;
-    }
-    .disc-sidenav__brand strong { font-size: 1.05rem; }
-    .disc-sidenav__brand span { display: block; font-size: 0.72rem; opacity: 0.5; margin-top: 0.15rem; }
-    .disc-sidenav__close {
-      width: 2rem; height: 2rem; border-radius: 9999px; border: 0;
-      background: rgba(255,255,255,0.08); color: #fff; cursor: pointer;
-    }
-    .disc-nav-link {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.8rem 0.85rem;
-      border-radius: 0.85rem;
-      color: #e5e7eb;
-      text-decoration: none;
-      font-size: 0.95rem;
-      transition: background .2s ease;
-      border: 0;
-      background: transparent;
-      width: 100%;
-      text-align: left;
-      cursor: pointer;
-    }
-    .disc-nav-link:hover { background: rgba(255,255,255,0.08); }
-    .disc-nav-link .ico {
-      width: 1.75rem; text-align: center; opacity: 0.9;
-    }
-    .disc-nav-foot {
-      margin-top: auto;
-      padding-top: 1rem;
-      border-top: 1px solid rgba(255,255,255,0.08);
-      font-size: 0.72rem;
-      opacity: 0.5;
-      padding-left: 0.85rem;
-    }
 
     .disc-panel {
       position: absolute;
@@ -213,56 +191,21 @@
     .disc-panel-close:hover { background: rgba(255,255,255,0.18); }
     #people-list { flex: 1; overflow-y: auto; padding: 0.65rem; }
     .leaflet-control-attribution { font-size: 10px; }
-    body.is-map-expanded .disc-panel,
-    body.is-map-expanded .disc-menu-btn { opacity: 0; pointer-events: none; }
+    body.is-map-expanded .disc-panel { opacity: 0; pointer-events: none; }
   </style>
 </head>
-<body>
+<body class="fn-has-rail">
+  {{template "partials/nav.html" .}}
   <div id="map"></div>
 
-  <button type="button" class="disc-menu-btn" id="menu-toggle" title="Open menu" aria-label="Open menu">☰</button>
-
-  <div class="disc-backdrop" id="nav-backdrop" aria-hidden="true"></div>
-
-  <nav class="disc-sidenav" id="side-nav" aria-label="Main menu">
-    <div class="disc-sidenav__brand">
-      <div>
-        <strong>FindNeighbour</strong>
-        <span>GSC · Discover</span>
-      </div>
-      <button type="button" class="disc-sidenav__close" id="nav-close" title="Close">✕</button>
-    </div>
-
-    <a class="disc-nav-link" href="/"><span class="ico">🗺</span> Discover map</a>
-    {{if .LoggedIn}}
-      <a class="disc-nav-link" href="/profile"><span class="ico">👤</span> My profile</a>
-      <a class="disc-nav-link" href="/profile?edit=1"><span class="ico">✎</span> Edit profile</a>
-      <a class="disc-nav-link" href="/connections"><span class="ico">🤝</span> Connections</a>
-      <a class="disc-nav-link" href="/messages"><span class="ico">💬</span> Messages</a>
-      <a class="disc-nav-link" href="/events"><span class="ico">📅</span> Events</a>
-      <a class="disc-nav-link" href="/notifications"><span class="ico">🔔</span> Notifications</a>
-      <button type="button" class="disc-nav-link" id="live-toggle" data-on="{{if .LiveOn}}1{{else}}0{{end}}" title="Stop sharing live position">
-        <span class="ico">📍</span>
-        <span id="live-toggle-label">{{if .LiveOn}}Stop live tracking{{else}}Live sharing (optional){{end}}</span>
-      </button>
-      <form method="POST" action="/auth/logout" style="margin:0">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button type="submit" class="disc-nav-link"><span class="ico">⎋</span> Logout</button>
-      </form>
-    {{else}}
-      <a class="disc-nav-link" href="/auth/login?next=/"><span class="ico">🔑</span> Login</a>
-      <a class="disc-nav-link" href="/auth/register"><span class="ico">✨</span> Register</a>
-      <a class="disc-nav-link" href="/auth/login?next=/onboarding"><span class="ico">📌</span> Join the map</a>
-    {{end}}
-
-    <div class="disc-nav-foot">Global Social Connections</div>
-  </nav>
-
   <div class="disc-controls" aria-label="Map controls">
+    {{if .LoggedIn}}
+    <button type="button" class="disc-btn" id="live-toggle" data-on="{{if .LiveOn}}1{{else}}0{{end}}" title="Share live location">📍</button>
+    {{end}}
     <button type="button" class="disc-btn" id="zoom-in" title="Zoom in">+</button>
     <button type="button" class="disc-btn" id="zoom-out" title="Zoom out">−</button>
     <button type="button" class="disc-btn" id="expand-map" title="Expand map">⛶</button>
-    <button type="button" class="disc-btn" id="locate-me" title="Zoom to my saved location">◎</button>
+    <button type="button" class="disc-btn" id="locate-me" title="Go to saved profile location">◎</button>
     <button type="button" class="disc-btn" id="toggle-people" title="People nearby">👤</button>
   </div>
 

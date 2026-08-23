@@ -2,16 +2,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>{{template "partials/head.html" .}}</head>
-<body class="fn-theme min-h-screen">
+<body class="fn-theme fn-has-rail min-h-screen">
 {{template "partials/nav.html" .}}
 <main class="max-w-6xl mx-auto px-4 py-8">
 <h1 class="text-2xl font-bold mb-6">Notifications</h1>
+{{if .Msg}}<p class="mb-4 text-emerald-400 text-sm">{{.Msg}}</p>{{end}}
+{{if .Error}}<p class="mb-4 text-red-400 text-sm">{{.Error}}</p>{{end}}
 <div class="space-y-2">
   {{range .Notifications}}
-  <div class="p-4 bg-white rounded-xl border">
-    <div class="font-semibold">{{.Title}}</div>
-    <p class="text-sm text-slate-500">{{.Body}}</p>
-  </div>
+  <article class="fn-notif{{if .Unread}} fn-notif--unread{{end}}">
+    <div class="fn-notif__main">
+      {{if .Unread}}
+      <form method="POST" action="/notifications/{{.ID}}/read" class="fn-notif__mark">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <input type="hidden" name="next" value="/notifications">
+        <button type="submit" class="fn-notif__hit" title="Mark as read">
+          <span class="fn-notif__dot" aria-hidden="true"></span>
+          <span class="fn-notif__title">{{.Title}}</span>
+          <p class="fn-notif__body">{{.Body}}</p>
+        </button>
+      </form>
+      {{else}}
+      <div class="fn-notif__hit fn-notif__hit--static">
+        <span class="fn-notif__title">{{.Title}}</span>
+        <p class="fn-notif__body">{{.Body}}</p>
+      </div>
+      {{end}}
+      {{if and .EventID (ne .EventID "")}}
+      <a class="fn-notif__link" href="/events/{{.EventID}}">View event</a>
+      {{end}}
+    </div>
+    {{if .InvitePending}}
+    <div class="fn-notif__actions">
+      <form method="POST" action="/events/{{.EventID}}/invitations/{{.InvitationID}}/accept">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <input type="hidden" name="next" value="/notifications">
+        <button type="submit" class="fn-btn fn-btn-primary fn-btn-sm">Accept</button>
+      </form>
+      <form method="POST" action="/events/{{.EventID}}/invitations/{{.InvitationID}}/decline">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <input type="hidden" name="next" value="/notifications">
+        <button type="submit" class="fn-btn fn-btn-ghost fn-btn-sm">Reject</button>
+      </form>
+    </div>
+    {{else if and (eq .Type "event_invitation") .InvitationID}}
+    <p class="fn-notif__status">Responded</p>
+    {{end}}
+  </article>
   {{else}}<p class="text-slate-500">No notifications.</p>{{end}}
 </div>
 </main>

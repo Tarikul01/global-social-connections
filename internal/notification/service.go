@@ -70,6 +70,26 @@ func (r *Repository) MarkRead(ctx context.Context, id, userID uuid.UUID) error {
 	return err
 }
 
+func (r *Repository) UnreadCount(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND read_at IS NULL
+	`, userID).Scan(&n)
+	return n, err
+}
+
+func (r *Repository) MarkReadByInvitation(ctx context.Context, userID, invitationID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE notifications
+		SET read_at = now()
+		WHERE user_id = $1
+		  AND read_at IS NULL
+		  AND type = 'event_invitation'
+		  AND data->>'invitation_id' = $2
+	`, userID, invitationID.String())
+	return err
+}
+
 type Service struct {
 	repo *Repository
 	log  *logger.Logger
@@ -89,4 +109,12 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID) ([]Notification, e
 
 func (s *Service) MarkRead(ctx context.Context, id, userID uuid.UUID) error {
 	return s.repo.MarkRead(ctx, id, userID)
+}
+
+func (s *Service) UnreadCount(ctx context.Context, userID uuid.UUID) (int, error) {
+	return s.repo.UnreadCount(ctx, userID)
+}
+
+func (s *Service) MarkReadByInvitation(ctx context.Context, userID, invitationID uuid.UUID) error {
+	return s.repo.MarkReadByInvitation(ctx, userID, invitationID)
 }

@@ -1,18 +1,30 @@
 {{define "partials/location_picker.html"}}
+{{$title := "Location"}}
+{{$hintTitle := "Drop a pin on the map"}}
+{{$hintText := "Tap the map, drag the pin, or use the locate button to choose where you live."}}
+{{$note := "This is your permanent address. Live location (from the home map) never overwrites it."}}
+{{$privacy := "Your exact location is private — only an approximate area is shared."}}
+{{if eq .LocPickerMode "event"}}
+  {{$title = "Event location"}}
+  {{$hintTitle = "Pick the meetup spot"}}
+  {{$hintText = "Tap the map, drag the pin, or use the locate button to set where the event happens."}}
+  {{$note = "This pin is the event meetup point shown on the map."}}
+  {{$privacy = "Participants see this location when they view the event."}}
+{{end}}
 <section class="fn-loc" id="location-picker-root">
   <div class="fn-loc__head">
-    <h2 class="fn-loc__title">Location</h2>
+    <h2 class="fn-loc__title">{{$title}}</h2>
     <p class="fn-loc__privacy">
       <span class="fn-loc__lock" aria-hidden="true">🔒</span>
-      Your exact location is private — only an approximate area is shared.
+      {{$privacy}}
     </p>
   </div>
 
   <div class="fn-loc__hint">
     <span class="fn-loc__step">1</span>
     <div>
-      <p class="fn-loc__hint-title">Drop a pin on the map</p>
-      <p class="fn-loc__hint-text">Tap the map, drag the pin, or use the locate button to choose where you live.</p>
+      <p class="fn-loc__hint-title">{{$hintTitle}}</p>
+      <p class="fn-loc__hint-text">{{$hintText}}</p>
     </div>
   </div>
 
@@ -27,6 +39,6 @@
   </div>
 
   <p id="picked-coords" class="fn-loc__label">Choose a point on the map</p>
-  <p class="fn-loc__note">This is your <strong>permanent address</strong>. Live location (from the home map) never overwrites it.</p>
+  <p class="fn-loc__note">{{$note}}</p>
 </section>
 {{end}}

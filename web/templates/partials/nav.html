@@ -1,38 +1,73 @@
 {{define "partials/nav.html"}}
-<nav class="fn-nav sticky top-0 z-50 border-b border-[color:var(--fn-border)] bg-[color:var(--fn-bg-elevated)]/90 backdrop-blur-md" x-data="{ open: false }">
-  <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3 relative">
-    <a href="/" class="font-bold text-white text-lg shrink-0 tracking-tight">
-      <span class="inline-flex items-center justify-center w-8 h-8 mr-2 rounded-md border border-[color:var(--fn-border)] text-sm align-middle">FN</span>FindNeighbour
-    </a>
+<div class="fn-rail-backdrop" id="fn-nav-backdrop" aria-hidden="true"></div>
 
-    <button type="button"
-      class="sm:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-[color:var(--fn-border)] text-white bg-[color:var(--fn-surface)]"
-      @click="open = !open"
-      :aria-expanded="open.toString()"
-      aria-controls="fn-nav-links"
-      aria-label="Toggle menu">
-      <span x-show="!open">☰</span>
-      <span x-show="open" x-cloak>✕</span>
-    </button>
+<aside class="fn-rail" id="fn-side-nav" aria-label="Main menu">
+  <button type="button" class="fn-rail__toggle" id="fn-menu-toggle" title="Open menu" aria-expanded="false" aria-controls="fn-side-nav">☰</button>
 
-    <div id="fn-nav-links"
-      class="sm:flex sm:flex-row sm:static sm:border-0 sm:shadow-none sm:p-0 sm:gap-x-4 sm:items-center flex-wrap justify-end gap-x-4 gap-y-2 text-sm text-slate-300"
-      :class="open
-        ? 'flex flex-col absolute left-0 right-0 top-full bg-[color:var(--fn-bg-elevated)] border-b border-[color:var(--fn-border)] px-4 py-3 shadow-lg gap-3 items-stretch'
-        : 'hidden sm:flex'">
-      <a href="/discover" class="hover:text-white py-1 sm:py-0" @click="open = false">Discover</a>
-      <a href="/events" class="hover:text-white py-1 sm:py-0" @click="open = false">Events</a>
-      <a href="/messages" class="hover:text-white py-1 sm:py-0" @click="open = false">Messages</a>
-      <a href="/connections" class="hover:text-white py-1 sm:py-0" @click="open = false">Connections</a>
-      <a href="/notifications" class="hover:text-white py-1 sm:py-0" @click="open = false">Notifications</a>
-      <a href="/profile" class="hover:text-[color:var(--fn-yellow)] py-1 sm:py-0" @click="open = false">Profile</a>
-      <a href="/settings/location" class="hover:text-white py-1 sm:py-0" @click="open = false">Privacy</a>
-      <form method="POST" action="/auth/logout" class="sm:inline">
-        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-        <button type="submit" class="fn-btn fn-btn-blue !py-1.5 !px-3 !text-xs w-full sm:w-auto">Logout</button>
-      </form>
+  <div class="fn-rail__brand">
+    <div class="fn-rail__brand-inner">
+      <span class="fn-rail__logo">FN</span>
+      <div class="fn-rail__brand-text">
+        <strong>FindNeighbour</strong>
+        <span>GSC</span>
+      </div>
     </div>
+    <button type="button" class="fn-rail__close" id="fn-nav-close" title="Close menu" aria-label="Close menu">✕</button>
   </div>
-</nav>
-<style>[x-cloak]{display:none!important}</style>
+
+  <nav class="fn-rail__links">
+    <a class="fn-rail__link" href="/discover" title="Discover map"><span class="ico">🗺</span><span class="lbl">Discover map</span></a>
+    {{if .LoggedIn}}
+    <a class="fn-rail__link" href="/events" title="Events"><span class="ico">📅</span><span class="lbl">Events</span></a>
+    <a class="fn-rail__link" href="/messages" title="Messages"><span class="ico">💬</span><span class="lbl">Messages</span></a>
+    <a class="fn-rail__link" href="/connections" title="Connections"><span class="ico">🤝</span><span class="lbl">Connections</span></a>
+    <a class="fn-rail__link" href="/notifications" title="Notifications">
+      <span class="ico fn-rail__ico-wrap">🔔{{if gt .UnreadNotifications 0}}<span class="fn-rail__badge">{{.UnreadNotifications}}</span>{{end}}</span>
+      <span class="lbl">Notifications{{if gt .UnreadNotifications 0}} ({{.UnreadNotifications}}){{end}}</span>
+    </a>
+    <a class="fn-rail__link" href="/profile" title="@{{.CurrentUser.Username}}"><span class="ico">👤</span><span class="lbl">@{{.CurrentUser.Username}}</span></a>
+    <a class="fn-rail__link" href="/settings/location" title="Privacy"><span class="ico">🔒</span><span class="lbl">Privacy</span></a>
+    <form method="POST" action="/auth/logout" class="fn-rail__logout">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button type="submit" class="fn-rail__link" title="Logout"><span class="ico">⎋</span><span class="lbl">Logout</span></button>
+    </form>
+    {{else}}
+    <a class="fn-rail__link" href="/auth/login?next=/discover" title="Login"><span class="ico">🔑</span><span class="lbl">Login</span></a>
+    <a class="fn-rail__link" href="/auth/register" title="Register"><span class="ico">✨</span><span class="lbl">Register</span></a>
+    <a class="fn-rail__link" href="/auth/login?next=/onboarding" title="Join the map"><span class="ico">📌</span><span class="lbl">Join the map</span></a>
+    {{end}}
+  </nav>
+
+  <div class="fn-rail__foot"><span class="lbl">Global Social Connections</span></div>
+</aside>
+
+<script>
+(function () {
+  function setOpen(open) {
+    document.body.classList.toggle('fn-nav-open', open);
+    var btn = document.getElementById('fn-menu-toggle');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function openNav() { setOpen(true); }
+  function closeNav() { setOpen(false); }
+  function toggleNav() { setOpen(!document.body.classList.contains('fn-nav-open')); }
+
+  var toggleBtn = document.getElementById('fn-menu-toggle');
+  var closeBtn = document.getElementById('fn-nav-close');
+  var backdrop = document.getElementById('fn-nav-backdrop');
+  var nav = document.getElementById('fn-side-nav');
+  if (toggleBtn) toggleBtn.addEventListener('click', function (e) { e.stopPropagation(); openNav(); });
+  if (closeBtn) closeBtn.addEventListener('click', closeNav);
+  if (backdrop) backdrop.addEventListener('click', closeNav);
+  if (nav) {
+    nav.querySelectorAll('a.fn-rail__link').forEach(function (a) {
+      a.addEventListener('click', closeNav);
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeNav();
+  });
+  window.FN_closeSideNav = closeNav;
+})();
+</script>
 {{end}}

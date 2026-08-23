@@ -9,7 +9,8 @@
   let center = [23.8103, 90.4125];
   let panelOpen = false;
   let myLocationMarker = null;
-  // Saved profile / map marker coords (permanent address) — not browser GPS
+  let myMapMarker = null;
+  let lastUsers = [];
   let mySavedLat = typeof cfg.myLat === 'number' ? cfg.myLat : null;
   let mySavedLng = typeof cfg.myLng === 'number' ? cfg.myLng : null;
 
@@ -65,26 +66,6 @@
   }
 
   function setupSideNav() {
-    const openBtn = document.getElementById('menu-toggle');
-    const closeBtn = document.getElementById('nav-close');
-    const backdrop = document.getElementById('nav-backdrop');
-    const nav = document.getElementById('side-nav');
-
-    if (openBtn) openBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openNav();
-    });
-    if (closeBtn) closeBtn.addEventListener('click', closeNav);
-    if (backdrop) backdrop.addEventListener('click', closeNav);
-
-    // Close when choosing a nav link (except live toggle)
-    if (nav) {
-      nav.querySelectorAll('a.disc-nav-link').forEach((a) => {
-        a.addEventListener('click', () => closeNav());
-      });
-      nav.addEventListener('click', (e) => e.stopPropagation());
-    }
-
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeNav();
@@ -93,16 +74,10 @@
     });
   }
 
-  function openNav() {
-    document.body.classList.add('nav-open');
-    const btn = document.getElementById('menu-toggle');
-    if (btn) btn.setAttribute('aria-expanded', 'true');
-  }
-
   function closeNav() {
-    document.body.classList.remove('nav-open');
-    const btn = document.getElementById('menu-toggle');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (typeof window.FN_closeSideNav === 'function') {
+      window.FN_closeSideNav();
+    }
   }
 
   function toggleExpand() {
@@ -187,11 +162,25 @@
     myLocationMarker.bindTooltip('You are here', { permanent: false });
   }
 
-  // Called while live GPS updates so the blue dot follows you
+  // Called while live GPS updates so the marker follows you
   window.FN_onLiveMove = function (lat, lng) {
     center = [lat, lng];
     updateMyDot(lat, lng);
+    if (myMapMarker) {
+      myMapMarker.setLatLng([lat, lng]);
+    }
   };
+
+  window.FN_applyLivePulse = function (on) {
+    cfg.liveOn = !!on;
+    if (lastUsers.length) {
+      renderMarkers(lastUsers);
+    } else {
+      loadPeople();
+    }
+  };
+
+  window.FN_refreshLiveMarker = window.FN_applyLivePulse;
 
   function loadPeople() {
     const c = map.getCenter();
@@ -210,6 +199,10 @@
       .then((body) => {
         const data = body.data || body;
         const users = data.users || [];
+        lastUsers = users;
+        if (data.live === true || data.live === false) {
+          cfg.liveOn = !!data.live;
+        }
         const me = users.find((u) => u.is_me);
         if (me && typeof me.lat === 'number' && typeof me.lng === 'number') {
           mySavedLat = me.lat;
@@ -239,37 +232,69 @@
     return 5000;
   }
 
+  function isMeLiveSharing(u) {
+    if (!u.is_me) return false;
+    if (u.live) return true;
+    if (cfg.liveOn) return true;
+    if (window.FN_live && window.FN_live.isActive()) return true;
+    return false;
+  }
+
   function markerHTML(u) {
+    const liveSharing = isMeLiveSharing(u);
     const cls = [
       'disc-marker',
       u.online ? '' : 'offline',
       u.is_me ? 'me' : '',
-      u.live ? 'live' : ''
+      (u.live || liveSharing) ? 'live' : ''
     ].filter(Boolean).join(' ');
 
+    let inner;
     if (u.photo_url) {
-      return `<div class="${cls}"><img src="${escapeAttr(u.photo_url)}" alt=""><span class="dot"></span></div>`;
+      inner = `<div class="${cls}"><img src="${escapeAttr(u.photo_url)}" alt=""><span class="dot"></span></div>`;
+    } else {
+      inner = `<div class="${cls}">${escapeHtml(u.initials || '?')}<span class="dot"></span></div>`;
     }
-    return `<div class="${cls}">${escapeHtml(u.initials || '?')}<span class="dot"></span></div>`;
+
+    if (liveSharing) {
+      return `<div class="disc-marker-wrap is-live-sharing">
+        <span class="live-ring" aria-hidden="true"></span>
+        <span class="live-ring live-ring--b" aria-hidden="true"></span>
+        ${inner}
+      </div>`;
+    }
+    return inner;
+  }
+
+  function markerIconOpts(u) {
+    if (isMeLiveSharing(u)) {
+      return { iconSize: [72, 72], iconAnchor: [36, 36] };
+    }
+    return { iconSize: [46, 46], iconAnchor: [23, 23] };
   }
 
   function renderMarkers(users) {
     markerLayer.clearLayers();
+    myMapMarker = null;
     users.forEach((u) => {
+      const dims = markerIconOpts(u);
       const icon = L.divIcon({
         className: '',
         html: markerHTML(u),
-        iconSize: [46, 46],
-        iconAnchor: [23, 23]
+        iconSize: dims.iconSize,
+        iconAnchor: dims.iconAnchor
       });
       const m = L.marker([u.lat, u.lng], {
         icon,
         zIndexOffset: u.is_me ? 1000 : Math.round((u.lat % 1) * 100)
       });
       m.on('click', () => openPerson(u));
-      const tip = u.full_name + (u.is_me ? ' (You)' : '') + (u.live ? ' · Live' : (u.online ? ' · Online' : ' · Offline'));
+      const sharing = isMeLiveSharing(u);
+      const tip = u.full_name + (u.is_me ? ' (You)' : '') +
+        (sharing ? ' · Live sharing' : (u.live ? ' · Live' : (u.online ? ' · Online' : ' · Offline')));
       m.bindTooltip(tip, { direction: 'top', offset: [0, -18] });
       markerLayer.addLayer(m);
+      if (u.is_me) myMapMarker = m;
     });
   }
 

@@ -44,6 +44,7 @@ type Deps struct {
 	EventCtrl  *event.Controller
 	ChatCtrl   *chat.Controller
 	NotifCtrl  *notification.Controller
+	NotifSvc   *notification.Service
 	SocialCtrl *social.Controller
 }
 
@@ -64,6 +65,10 @@ func SetupRouter(d Deps) *gin.Engine {
 
 	// Optional session on all requests (does not require login).
 	r.Use(middleware.Auth(d.AuthSvc, d.Config))
+	if d.NotifSvc != nil {
+		notifSvc := d.NotifSvc
+		r.Use(middleware.UnreadNotifications(notifSvc.UnreadCount))
+	}
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -121,13 +126,24 @@ func registerWeb(r *gin.Engine, d Deps) {
 		authed.POST("/settings/location", d.LocCtrl.UpdateSettings)
 		authed.POST("/settings/location/update", d.LocCtrl.UpdateLocation)
 
+		authed.POST("/api/live-location", d.LocCtrl.UpdateLiveLocation)
+		authed.POST("/api/live-location/start", d.LocCtrl.StartLiveLocation)
+		authed.GET("/api/live-location/status", d.LocCtrl.LiveStatus)
+		authed.DELETE("/api/live-location", d.LocCtrl.StopLiveLocation)
+
 		authed.GET("/events", d.EventCtrl.List)
 		authed.GET("/events/new", d.EventCtrl.CreateForm)
 		authed.POST("/events", d.EventCtrl.Create)
 		authed.GET("/events/:id", d.EventCtrl.Show)
 		authed.POST("/events/:id/join", d.EventCtrl.JoinRequest)
+		authed.POST("/events/:id/invite", d.EventCtrl.Invite)
+		authed.POST("/events/:id/invite-batch", d.EventCtrl.InviteBatch)
+		authed.GET("/events/:id/users/search", d.EventCtrl.SearchUsers)
+		authed.POST("/events/:id/members/:userId/promote-host", d.EventCtrl.PromoteHost)
 		authed.POST("/events/:id/requests/:reqId/accept", d.EventCtrl.AcceptJoin)
 		authed.POST("/events/:id/requests/:reqId/reject", d.EventCtrl.RejectJoin)
+		authed.POST("/events/:id/invitations/:invId/accept", d.EventCtrl.AcceptInvitation)
+		authed.POST("/events/:id/invitations/:invId/decline", d.EventCtrl.DeclineInvitation)
 		authed.GET("/events/:id/map", d.EventCtrl.MapView)
 		authed.POST("/events/:id/live-consent", d.EventCtrl.ToggleLiveConsent)
 

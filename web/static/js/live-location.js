@@ -11,28 +11,42 @@
 
   let watchId = null;
   let active = false;
+  let reloadTimer = null;
+  let stopping = false;
 
   function csrf() {
     return cfg.csrf || '';
   }
 
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(function () {
+      if (typeof window.FN_reloadMap === 'function') window.FN_reloadMap();
+    }, 2500);
+  }
+
   function setUI(on) {
     active = !!on;
+    cfg.liveOn = active;
     const btn = document.getElementById('live-toggle');
-    const label = document.getElementById('live-toggle-label');
-    const locateBtn = document.getElementById('locate-me');
-    if (btn) btn.dataset.on = on ? '1' : '0';
-    if (label) {
-      label.textContent = on ? 'Stop live tracking' : 'Live sharing (optional)';
+    if (btn) {
+      btn.dataset.on = on ? '1' : '0';
+      btn.title = on ? 'Stop live sharing (tap again)' : 'Share live location';
+      btn.classList.toggle('is-active', on);
+      btn.classList.toggle('is-live-sharing', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
-    if (locateBtn) locateBtn.classList.toggle('is-active', on);
+    if (typeof window.FN_applyLivePulse === 'function') {
+      window.FN_applyLivePulse(on);
+    }
   }
 
   function postForm(url, fields) {
     const fd = new FormData();
     Object.keys(fields || {}).forEach((k) => fd.append(k, fields[k]));
     fd.append('csrf_token', csrf());
-    return fetch(url, { method: 'POST', body: fd }).then((r) => r.json());
+    return fetch(url, { method: 'POST', credentials: 'same-origin', body: fd })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })));
   }
 
   function beginWatch() {
@@ -44,13 +58,12 @@
         postForm('/api/live-location', {
           lat: String(lat),
           lng: String(lng)
-        }).then(() => {
+        }).then((res) => {
+          if (!res.ok) return;
           if (typeof window.FN_onLiveMove === 'function') {
             window.FN_onLiveMove(lat, lng);
           }
-          if (typeof window.FN_reloadMap === 'function') {
-            window.FN_reloadMap();
-          }
+          scheduleReload();
         });
       },
       () => {},
@@ -64,15 +77,21 @@
         lat: String(la),
         lng: String(ln)
       }).then((res) => {
-        if (res && res.ok !== false) {
+        if (res.ok && res.data && res.data.ok !== false) {
           setUI(true);
-          // Watch GPS only when the browser allows it — never alert on deny
           beginWatch();
-          if (typeof window.FN_reloadMap === 'function') window.FN_reloadMap();
+          if (typeof window.FN_onLiveMove === 'function') {
+            window.FN_onLiveMove(la, ln);
+          }
+          scheduleReload();
           return true;
         }
+        setUI(false);
         return false;
-      }).catch(() => false);
+      }).catch(() => {
+        setUI(false);
+        return false;
+      });
 
     if (typeof lat === 'number' && typeof lng === 'number') {
       return go(lat, lng);
@@ -92,28 +111,48 @@
   }
 
   function stop() {
+    if (stopping) return Promise.resolve();
+    stopping = true;
     if (watchId != null) {
       navigator.geolocation.clearWatch(watchId);
       watchId = null;
     }
+    clearTimeout(reloadTimer);
     return fetch('/api/live-location', {
       method: 'DELETE',
+      credentials: 'same-origin',
       headers: { 'X-CSRF-Token': csrf() }
-    }).then(() => {
-      setUI(false);
-      if (typeof window.FN_reloadMap === 'function') window.FN_reloadMap();
-    }).catch(() => setUI(false));
+    }).then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then((res) => {
+        setUI(false);
+        if (typeof window.FN_reloadMap === 'function') window.FN_reloadMap();
+        if (typeof cfg.myLat === 'number' && typeof cfg.myLng === 'number' &&
+            typeof window.FN_onLiveMove === 'function') {
+          window.FN_onLiveMove(cfg.myLat, cfg.myLng);
+        }
+        return res.ok;
+      })
+      .catch(() => {
+        setUI(false);
+        return false;
+      })
+      .finally(() => {
+        stopping = false;
+      });
   }
 
-  // Sidebar: only used to STOP tracking (start is via ◎ My location)
   const btn = document.getElementById('live-toggle');
   if (btn) {
     btn.addEventListener('click', () => {
-      if (active || btn.dataset.on === '1') stop();
+      if (active || btn.dataset.on === '1') {
+        stop();
+      } else {
+        start();
+      }
     });
   }
 
-  fetch('/api/live-location/status', { headers: { Accept: 'application/json' } })
+  fetch('/api/live-location/status', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then((r) => r.json())
     .then((data) => {
       if (data.live) {

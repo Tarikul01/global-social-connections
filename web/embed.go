@@ -16,6 +16,8 @@ var StaticFS embed.FS
 func LoadTemplates() (*template.Template, error) {
 	funcMap := template.FuncMap{
 		"dict": dict,
+		"add":  func(a, b int) int { return a + b },
+		"sub":  func(a, b int) int { return a - b },
 	}
 	return template.New("").Funcs(funcMap).ParseFS(TemplatesFS, "templates/*.html", "templates/**/*.html")
 }

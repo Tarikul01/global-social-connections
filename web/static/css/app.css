@@ -18,6 +18,8 @@
   --fn-font: "DM Sans", "Segoe UI", system-ui, sans-serif;
 }
 
+[x-cloak] { display: none !important; }
+
 html { color-scheme: dark; }
 
 body {
@@ -79,6 +81,43 @@ body.fn-theme {
 .fn-theme input::placeholder,
 .fn-theme textarea::placeholder { color: #64748b !important; }
 .fn-theme a:hover { color: var(--fn-blue-bright); }
+
+.fn-password-field {
+  position: relative;
+}
+.fn-password-field input {
+  padding-right: 2.75rem !important;
+}
+.fn-password-field__toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.fn-password-field__toggle:hover {
+  color: var(--fn-blue-bright);
+  background: rgba(59, 130, 246, 0.12);
+}
+.fn-password-field__toggle:focus-visible {
+  outline: 2px solid var(--fn-blue-bright);
+  outline-offset: 2px;
+}
+.fn-password-field__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
 
 #map, #event-map { min-height: 24rem; }
 
@@ -261,4 +300,324 @@ body.fn-theme {
   font-size: 9px;
   background: rgba(5, 8, 22, 0.85) !important;
   color: #94a3b8 !important;
+}
+
+/* Persistent left icon rail — collapsed: all icons; expanded: icons + labels */
+:root {
+  --fn-rail-collapsed: 3.5rem;
+  --fn-rail-expanded: 16.5rem;
+}
+
+.fn-rail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  background: rgba(2, 6, 23, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+body.fn-nav-open .fn-rail-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.fn-rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--fn-rail-collapsed);
+  z-index: 1050;
+  background: #0b1224;
+  border-right: 1px solid var(--fn-border);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0.35rem 0.5rem;
+  overflow: hidden;
+  transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.fn-nav-open .fn-rail {
+  width: min(var(--fn-rail-expanded), 86vw);
+  padding: 0.65rem 0.55rem 1rem;
+}
+
+/* Menu button — only when rail is collapsed */
+.fn-rail__toggle {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0 auto 0.35rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--fn-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.fn-rail__toggle:hover { background: rgba(255, 255, 255, 0.12); }
+body.fn-nav-open .fn-rail__toggle {
+  display: none;
+}
+
+/* Brand header — only when expanded */
+.fn-rail__brand {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.2rem 0.75rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--fn-border);
+}
+body.fn-nav-open .fn-rail__brand {
+  display: flex;
+}
+.fn-rail__brand-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.fn-rail__close {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.55rem;
+  border: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+.fn-rail__close:hover { background: rgba(255, 255, 255, 0.14); }
+
+.fn-rail__logo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--fn-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--fn-yellow);
+  flex-shrink: 0;
+}
+.fn-rail__brand-text strong {
+  display: block;
+  font-size: 0.92rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.fn-rail__brand-text span {
+  display: block;
+  font-size: 0.65rem;
+  opacity: 0.55;
+  margin-top: 0.1rem;
+}
+
+.fn-rail__links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+.fn-rail__logout { margin: 0; }
+
+.fn-rail__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0.4rem 0;
+  border-radius: 0.65rem;
+  color: #e5e7eb;
+  text-decoration: none;
+  font-size: 0.88rem;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+  min-height: 2.35rem;
+  flex-shrink: 0;
+}
+body.fn-nav-open .fn-rail__link {
+  justify-content: flex-start;
+  gap: 0.65rem;
+  padding: 0.55rem 0.5rem;
+  min-height: 2.5rem;
+}
+.fn-rail__link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.fn-rail__link .ico {
+  width: 2.25rem;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+.fn-rail__link .lbl {
+  overflow: hidden;
+  white-space: nowrap;
+  display: none;
+}
+body.fn-nav-open .fn-rail__link .lbl {
+  display: block;
+}
+.fn-rail__ico-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fn-rail__badge {
+  position: absolute;
+  top: -0.35rem;
+  right: 0.15rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: var(--fn-yellow);
+  color: #0f172a;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.05rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--fn-bg-elevated);
+}
+
+/* Notifications */
+.fn-notif {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--fn-border);
+  background: var(--fn-surface);
+}
+.fn-notif--unread {
+  border-color: rgba(96, 165, 250, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  box-shadow: inset 3px 0 0 var(--fn-blue-bright);
+}
+.fn-notif__main {
+  flex: 1;
+  min-width: 12rem;
+}
+.fn-notif__mark { margin: 0; }
+.fn-notif__hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.fn-notif__hit--static { cursor: default; }
+.fn-notif__dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  background: var(--fn-yellow);
+  vertical-align: middle;
+}
+.fn-notif__title {
+  font-weight: 700;
+  color: var(--fn-text);
+}
+.fn-notif__body {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--fn-muted);
+}
+.fn-notif__link {
+  display: inline-block;
+  margin-top: 0.55rem;
+  font-size: 0.82rem;
+  color: var(--fn-blue-bright);
+}
+.fn-notif__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.fn-notif__status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fn-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.fn-btn-sm {
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
+  border-radius: 0.55rem;
+}
+
+.fn-rail__foot {
+  display: none;
+  margin-top: auto;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--fn-border);
+  font-size: 0.65rem;
+  opacity: 0.45;
+  padding-left: 0.5rem;
+}
+body.fn-nav-open .fn-rail__foot {
+  display: block;
+}
+.fn-rail__foot .lbl { white-space: nowrap; }
+
+/* Pages with the icon rail — offset main content */
+body.fn-has-rail {
+  padding-left: var(--fn-rail-collapsed);
+  transition: padding-left 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.fn-has-rail.fn-nav-open {
+  padding-left: min(var(--fn-rail-expanded), 86vw);
+}
+body.fn-has-rail > main {
+  padding-top: 1.25rem;
+}
+
+/* Discover map: shift map controls; rail overlays left edge */
+body.fn-has-rail #map {
+  left: var(--fn-rail-collapsed);
+  transition: left 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.fn-has-rail.fn-nav-open #map {
+  left: min(var(--fn-rail-expanded), 86vw);
+}
+
+@media (max-width: 640px) {
+  body.fn-has-rail.fn-nav-open {
+    padding-left: var(--fn-rail-collapsed);
+  }
+  body.fn-has-rail.fn-nav-open #map {
+    left: var(--fn-rail-collapsed);
+  }
 }

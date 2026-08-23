@@ -96,6 +96,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	eventCtrl.SetLocationService(locSvc)
 	chatCtrl := chat.NewController(chatSvc, authSvc, notifSvc, cfg, log, tmpl)
 	notifCtrl := notification.NewControllerWithConfig(notifSvc, authSvc, cfg, log, tmpl)
+	notifCtrl.SetInviteStatusChecker(eventSvc.InvitationStatus)
 	socialCtrl := social.NewController(socialSvc, authSvc, log, tmpl)
 
 	r := router.SetupRouter(router.Deps{
@@ -115,6 +116,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		EventCtrl:   eventCtrl,
 		ChatCtrl:    chatCtrl,
 		NotifCtrl:   notifCtrl,
+		NotifSvc:    notifSvc,
 		SocialCtrl:  socialCtrl,
 	})
 

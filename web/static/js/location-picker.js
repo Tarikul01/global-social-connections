@@ -6,6 +6,9 @@ function initLocationPicker(opts) {
   const cityEl = document.getElementById(opts.cityInput);
   const regionEl = document.getElementById(opts.regionInput);
   const countryEl = document.getElementById(opts.countryInput);
+  const locationNameEl = opts.locationNameInput
+    ? document.getElementById(opts.locationNameInput)
+    : null;
   const labelEl = document.getElementById(opts.labelId);
   const root = document.getElementById(opts.rootId || 'location-picker-root');
   const mapEl = document.getElementById(opts.mapId);
@@ -64,6 +67,17 @@ function initLocationPicker(opts) {
         if (cityEl) cityEl.value = a.city || a.town || a.village || a.suburb || '';
         if (regionEl) regionEl.value = a.state || a.region || '';
         if (countryEl) countryEl.value = a.country || '';
+        if (locationNameEl) {
+          const place = a.suburb || a.neighbourhood || a.road || a.city || a.town || a.village || '';
+          const region = a.state || a.region || '';
+          const autoName = place
+            ? (place + (region ? ', ' + region : ''))
+            : (data.display_name || locationNameEl.value);
+          // Only overwrite if empty or previously auto-filled
+          if (!locationNameEl.dataset.manual || locationNameEl.dataset.manual !== '1') {
+            locationNameEl.value = autoName;
+          }
+        }
         if (labelEl) {
           const place = a.suburb || a.neighbourhood || a.city || a.town || '';
           const region = a.state || a.region || '';
@@ -73,6 +87,12 @@ function initLocationPicker(opts) {
         }
       })
       .catch(() => {});
+  }
+
+  if (locationNameEl) {
+    locationNameEl.addEventListener('input', () => {
+      locationNameEl.dataset.manual = locationNameEl.value.trim() ? '1' : '0';
+    });
   }
 
   marker.on('dragend', () => {

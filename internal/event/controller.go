@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/findneighbour/findneighbour/internal/auth"
@@ -36,7 +37,12 @@ func (ctrl *Controller) List(c *gin.Context) {
 }
 
 func (ctrl *Controller) CreateForm(c *gin.Context) {
-	view.Render(c, ctrl.tmpl, ctrl.cfg, "events/new.html", gin.H{"Title": "Create Event"})
+	view.Render(c, ctrl.tmpl, ctrl.cfg, "events/new.html", gin.H{
+		"Title":         "Create Event",
+		"Lat":           23.8103,
+		"Lng":           90.4125,
+		"LocPickerMode": "event",
+	})
 }
 
 func (ctrl *Controller) Create(c *gin.Context) {
@@ -49,29 +55,93 @@ func (ctrl *Controller) Create(c *gin.Context) {
 	lat, _ := strconv.ParseFloat(c.PostForm("lat"), 64)
 	lng, _ := strconv.ParseFloat(c.PostForm("lng"), 64)
 	date, _ := time.Parse("2006-01-02", c.PostForm("event_date"))
+	visibility := c.DefaultPostForm("visibility", "public")
+	if visibility != "private" {
+		visibility = "public"
+	}
 	created, err := ctrl.svc.Create(c.Request.Context(), Event{
 		CreatorID: u.ID, Title: c.PostForm("title"), Description: c.PostForm("description"),
 		Category: c.PostForm("category"), EventDate: date, StartTime: c.PostForm("start_time"),
 		EndTime: c.PostForm("end_time"), LocationName: c.PostForm("location_name"),
 		Latitude: lat, Longitude: lng, MaxParticipants: maxP,
-		Visibility: c.DefaultPostForm("visibility", "public"),
+		Visibility:          visibility,
 		LiveLocationEnabled: c.PostForm("live_location_enabled") == "on",
 	})
 	if err != nil {
-		view.Render(c, ctrl.tmpl, ctrl.cfg, "events/new.html", gin.H{"Title": "Create Event", "Error": err.Error()})
+		view.Render(c, ctrl.tmpl, ctrl.cfg, "events/new.html", gin.H{
+			"Title": "Create Event", "Error": err.Error(),
+			"Lat": lat, "Lng": lng, "LocPickerMode": "event",
+		})
 		return
 	}
+
+	if invites := strings.TrimSpace(c.PostForm("invite_usernames")); invites != "" {
+		for _, raw := range strings.Split(invites, ",") {
+			q := strings.TrimSpace(raw)
+			if q == "" {
+				continue
+			}
+			invID, inviteeID, inviteeName, err := ctrl.svc.InviteByUsername(c.Request.Context(), created.ID, u.ID, q)
+			if err != nil {
+				continue
+			}
+			ctrl.notifyInvite(c, created, inviteeID, inviteeName, invID)
+		}
+	}
+
 	c.Redirect(http.StatusFound, "/events/"+created.ID.String())
 }
 
 func (ctrl *Controller) Show(c *gin.Context) {
-	id, _ := uuid.Parse(c.Param("id"))
-	e, err := ctrl.svc.Get(c.Request.Context(), id)
+	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.String(404, "Event not found")
 		return
 	}
-	view.Render(c, ctrl.tmpl, ctrl.cfg, "events/show.html", gin.H{"Title": e.Title, "Event": e})
+	var viewerID uuid.UUID
+	if u, ok := auth.CurrentUser(c); ok {
+		viewerID = u.ID
+	}
+	invPage, _ := strconv.Atoi(c.DefaultQuery("inv_page", "1"))
+	browsePage, _ := strconv.Atoi(c.DefaultQuery("browse_page", "1"))
+	sc, err := ctrl.svc.ShowContext(c.Request.Context(), id, viewerID, invPage, browsePage)
+	if err != nil {
+		c.String(404, "Event not found")
+		return
+	}
+	view.Render(c, ctrl.tmpl, ctrl.cfg, "events/show.html", gin.H{
+		"Title":      sc.Event.Title,
+		"Event":      sc.Event,
+		"Ctx":        sc,
+		"Message":    c.Query("msg"),
+		"Error":      c.Query("error"),
+		"InvPage":    invPage,
+		"BrowsePage": browsePage,
+	})
+}
+
+func (ctrl *Controller) SearchUsers(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid event"})
+		return
+	}
+	sc, err := ctrl.svc.ShowContext(c.Request.Context(), eventID, u.ID, 1, 1)
+	if err != nil || !sc.IsHost {
+		c.JSON(403, gin.H{"error": "forbidden"})
+		return
+	}
+	users, err := ctrl.svc.SearchUsers(c.Request.Context(), eventID, u.ID, c.Query("q"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "search failed"})
+		return
+	}
+	c.JSON(200, gin.H{"users": users})
 }
 
 func (ctrl *Controller) JoinRequest(c *gin.Context) {
@@ -81,8 +151,18 @@ func (ctrl *Controller) JoinRequest(c *gin.Context) {
 		return
 	}
 	eventID, _ := uuid.Parse(c.Param("id"))
-	_ = ctrl.svc.JoinRequest(c.Request.Context(), eventID, u.ID, c.PostForm("message"))
-	c.Redirect(http.StatusFound, "/events/"+eventID.String())
+	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	if err := ctrl.svc.JoinRequest(c.Request.Context(), eventID, u.ID, c.PostForm("message")); err != nil {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?error="+err.Error())
+		return
+	}
+	if ctrl.notif != nil && e != nil {
+		_ = ctrl.notif.Create(c.Request.Context(), e.CreatorID, "event_join_request",
+			"New join request for "+e.Title,
+			u.Username+" wants to join your event",
+			map[string]string{"event_id": eventID.String(), "user_id": u.ID.String()})
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Join+request+sent")
 }
 
 func (ctrl *Controller) AcceptJoin(c *gin.Context) {
@@ -93,8 +173,19 @@ func (ctrl *Controller) AcceptJoin(c *gin.Context) {
 	}
 	eventID, _ := uuid.Parse(c.Param("id"))
 	reqID, _ := uuid.Parse(c.Param("reqId"))
-	_ = ctrl.svc.AcceptJoin(c.Request.Context(), eventID, reqID, u.ID)
-	c.Redirect(http.StatusFound, "/events/"+eventID.String())
+	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	joinedID, err := ctrl.svc.AcceptJoin(c.Request.Context(), eventID, reqID, u.ID)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?error="+err.Error())
+		return
+	}
+	if ctrl.notif != nil && joinedID != uuid.Nil && e != nil {
+		_ = ctrl.notif.Create(c.Request.Context(), joinedID, "event_join_accepted",
+			"You're in!",
+			"Your request to join "+e.Title+" was accepted",
+			map[string]string{"event_id": eventID.String()})
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Request+accepted")
 }
 
 func (ctrl *Controller) RejectJoin(c *gin.Context) {
@@ -105,8 +196,168 @@ func (ctrl *Controller) RejectJoin(c *gin.Context) {
 	}
 	eventID, _ := uuid.Parse(c.Param("id"))
 	reqID, _ := uuid.Parse(c.Param("reqId"))
-	_ = ctrl.svc.RejectJoin(c.Request.Context(), eventID, reqID, u.ID)
-	c.Redirect(http.StatusFound, "/events/"+eventID.String())
+	if err := ctrl.svc.RejectJoin(c.Request.Context(), eventID, reqID, u.ID); err != nil {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?error="+err.Error())
+		return
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Request+declined")
+}
+
+func (ctrl *Controller) Invite(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.Redirect(http.StatusFound, "/auth/login")
+		return
+	}
+	eventID, _ := uuid.Parse(c.Param("id"))
+	query := strings.TrimSpace(c.PostForm("username"))
+	if query == "" {
+		query = strings.TrimSpace(c.PostForm("query"))
+	}
+	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	invID, inviteeID, inviteeName, err := ctrl.svc.InviteByUsername(c.Request.Context(), eventID, u.ID, query)
+	if err != nil {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?error="+err.Error())
+		return
+	}
+	ctrl.notifyInvite(c, e, inviteeID, inviteeName, invID)
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Invitation+sent")
+}
+
+func (ctrl *Controller) InviteBatch(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.Redirect(http.StatusFound, "/auth/login")
+		return
+	}
+	eventID, _ := uuid.Parse(c.Param("id"))
+	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	var ids []uuid.UUID
+	for _, raw := range c.PostFormArray("user_ids") {
+		if id, err := uuid.Parse(strings.TrimSpace(raw)); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	var sent int
+	var batchErrs []string
+	seen := map[uuid.UUID]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		invID, name, err := ctrl.svc.InviteUser(c.Request.Context(), eventID, u.ID, id)
+		if err != nil {
+			batchErrs = append(batchErrs, err.Error())
+			continue
+		}
+		ctrl.notifyInvite(c, e, id, name, invID)
+		sent++
+	}
+	msg := "Sent " + strconv.Itoa(sent) + " invitation(s)"
+	if len(batchErrs) > 0 {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg="+msg+"&error="+strings.Join(batchErrs, "; "))
+		return
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg="+msg)
+}
+
+func (ctrl *Controller) PromoteHost(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.Redirect(http.StatusFound, "/auth/login")
+		return
+	}
+	eventID, _ := uuid.Parse(c.Param("id"))
+	targetID, _ := uuid.Parse(c.Param("userId"))
+	if err := ctrl.svc.PromoteCoHost(c.Request.Context(), eventID, u.ID, targetID); err != nil {
+		c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?error="+err.Error())
+		return
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Co-host+added")
+}
+
+func (ctrl *Controller) AcceptInvitation(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.Redirect(http.StatusFound, "/auth/login")
+		return
+	}
+	eventID, _ := uuid.Parse(c.Param("id"))
+	invID, _ := uuid.Parse(c.Param("invId"))
+	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	next := safeNext(c.PostForm("next"), "/events/"+eventID.String()+"?msg=You+joined+the+event")
+	if err := ctrl.svc.AcceptInvitation(c.Request.Context(), eventID, invID, u.ID); err != nil {
+		fail := safeNext(c.PostForm("next"), "/events/"+eventID.String())
+		if strings.Contains(fail, "?") {
+			c.Redirect(http.StatusFound, fail+"&error="+err.Error())
+		} else {
+			c.Redirect(http.StatusFound, fail+"?error="+err.Error())
+		}
+		return
+	}
+	if ctrl.notif != nil {
+		_ = ctrl.notif.MarkReadByInvitation(c.Request.Context(), u.ID, invID)
+		if e != nil {
+			_ = ctrl.notif.Create(c.Request.Context(), e.CreatorID, "event_invite_accepted",
+				"Invitation accepted",
+				u.Username+" accepted your invite to "+e.Title,
+				map[string]string{"event_id": eventID.String(), "user_id": u.ID.String()})
+		}
+	}
+	if c.PostForm("next") == "/notifications" {
+		c.Redirect(http.StatusFound, "/notifications?msg=You+joined+the+event")
+		return
+	}
+	c.Redirect(http.StatusFound, next)
+}
+
+func (ctrl *Controller) DeclineInvitation(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.Redirect(http.StatusFound, "/auth/login")
+		return
+	}
+	eventID, _ := uuid.Parse(c.Param("id"))
+	invID, _ := uuid.Parse(c.Param("invId"))
+	if err := ctrl.svc.DeclineInvitation(c.Request.Context(), invID, u.ID); err != nil {
+		fail := safeNext(c.PostForm("next"), "/events/"+eventID.String())
+		if strings.Contains(fail, "?") {
+			c.Redirect(http.StatusFound, fail+"&error="+err.Error())
+		} else {
+			c.Redirect(http.StatusFound, fail+"?error="+err.Error())
+		}
+		return
+	}
+	if ctrl.notif != nil {
+		_ = ctrl.notif.MarkReadByInvitation(c.Request.Context(), u.ID, invID)
+	}
+	if c.PostForm("next") == "/notifications" {
+		c.Redirect(http.StatusFound, "/notifications?msg=Invitation+declined")
+		return
+	}
+	c.Redirect(http.StatusFound, "/events/"+eventID.String()+"?msg=Invitation+declined")
+}
+
+func safeNext(next, fallback string) string {
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		return fallback
+	}
+	return next
+}
+
+func (ctrl *Controller) notifyInvite(c *gin.Context, e *Event, inviteeID uuid.UUID, inviteeName string, invID uuid.UUID) {
+	if ctrl.notif == nil || e == nil || inviteeID == uuid.Nil {
+		return
+	}
+	_ = ctrl.notif.Create(c.Request.Context(), inviteeID, "event_invitation",
+		"Event invitation",
+		"You were invited to "+e.Title,
+		map[string]string{
+			"event_id":      e.ID.String(),
+			"invitation_id": invID.String(),
+			"invitee_name":  inviteeName,
+		})
 }
 
 func (ctrl *Controller) MapView(c *gin.Context) {

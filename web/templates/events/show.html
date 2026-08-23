@@ -2,23 +2,189 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>{{template "partials/head.html" .}}</head>
-<body class="fn-theme min-h-screen">
+<body class="fn-theme fn-has-rail min-h-screen">
 {{template "partials/nav.html" .}}
 <main class="max-w-6xl mx-auto px-4 py-8">
 <div class="bg-white rounded-xl border p-6">
-  <h1 class="text-2xl font-bold">{{.Event.Title}}</h1>
-  <p class="text-slate-500 mt-1">{{.Event.EventDate.Format "Jan 2, 2006"}} · {{.Event.StartTime}} · {{.Event.LocationName}}</p>
-  <p class="mt-4">{{.Event.Description}}</p>
-  <p class="text-sm text-slate-500 mt-2">{{.Event.MemberCount}} / {{.Event.MaxParticipants}} members</p>
-  <div class="mt-6 flex gap-3">
-    <form method="POST" action="/events/{{.Event.ID}}/join">
-      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <button class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">Request to Join</button>
-    </form>
-    <a href="/events/{{.Event.ID}}/map" class="border px-4 py-2 rounded-lg text-sm">Event Map</a>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold">{{.Event.Title}}</h1>
+      <p class="text-slate-500 mt-1">{{.Event.EventDate.Format "Jan 2, 2006"}} · {{.Event.StartTime}}{{if .Event.EndTime}} – {{.Event.EndTime}}{{end}} · {{.Event.LocationName}}</p>
+    </div>
+    <span class="text-xs uppercase tracking-wide px-2.5 py-1 rounded-full border {{if eq .Event.Visibility "private"}}border-amber-500/40 text-amber-300{{else}}border-blue-500/40 text-blue-300{{end}}">
+      {{if eq .Event.Visibility "private"}}Private · invite only{{else}}Public{{end}}
+    </span>
   </div>
+
+  {{if .Message}}<p class="mt-4 text-sm text-green-400">{{.Message}}</p>{{end}}
+  {{if .Error}}<p class="mt-4 text-sm text-red-400">{{.Error}}</p>{{end}}
+
+  <p class="mt-4">{{.Event.Description}}</p>
+  <p class="text-sm text-slate-500 mt-2">
+    <strong>{{.Event.MemberCount}}</strong> / {{.Event.MaxParticipants}} going
+    {{if .Ctx.IsHost}}
+      · Invitations: <strong>{{.Ctx.TotalInvites}}</strong> total
+      · <strong class="text-green-400">{{.Ctx.AcceptedInvites}}</strong> accepted
+      · <strong class="text-amber-300">{{.Ctx.PendingInvites}}</strong> pending
+    {{end}}
+  </p>
+
+  <div class="mt-6 flex flex-wrap gap-3">
+    {{if .Ctx.IsHost}}
+      <span class="inline-flex items-center px-4 py-2 rounded-lg text-sm bg-slate-800 border border-slate-600">{{if .Ctx.IsCreator}}You are the host{{else}}You are a co-host{{end}}</span>
+      <a href="/events/{{.Event.ID}}/map" class="border px-4 py-2 rounded-lg text-sm">Event Map</a>
+    {{else if .Ctx.IsMember}}
+      <span class="inline-flex items-center px-4 py-2 rounded-lg text-sm bg-green-900/30 border border-green-600/40 text-green-300">You're going</span>
+      <a href="/events/{{.Event.ID}}/map" class="border px-4 py-2 rounded-lg text-sm">Event Map</a>
+    {{else if .Ctx.MyInvitationID}}
+      <form method="POST" action="/events/{{.Event.ID}}/invitations/{{.Ctx.MyInvitationID}}/accept">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="fn-btn fn-btn-primary text-sm">Accept invitation</button>
+      </form>
+      <form method="POST" action="/events/{{.Event.ID}}/invitations/{{.Ctx.MyInvitationID}}/decline">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="border px-4 py-2 rounded-lg text-sm">Decline</button>
+      </form>
+    {{else if .Ctx.HasPendingJoin}}
+      <span class="inline-flex items-center px-4 py-2 rounded-lg text-sm bg-amber-900/30 border border-amber-600/40 text-amber-200">Join request pending — waiting for host</span>
+    {{else if eq .Event.Visibility "public"}}
+      <form method="POST" action="/events/{{.Event.ID}}/join">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button class="fn-btn fn-btn-primary text-sm">Request to join</button>
+      </form>
+    {{else}}
+      <span class="inline-flex items-center px-4 py-2 rounded-lg text-sm bg-slate-800 border border-slate-600 text-slate-400">Private event — you need an invitation from the host</span>
+    {{end}}
+  </div>
+
+  {{if .Ctx.IsHost}}
+  <section class="mt-8 pt-6 border-t border-slate-700" x-data="eventInvitePanel({ eventId: '{{.Event.ID}}', csrf: '{{.CSRFToken}}' })">
+    {{if .Ctx.Hosts}}
+    <div class="mb-6">
+      <h2 class="font-semibold mb-2">Hosts</h2>
+      <div class="flex flex-wrap gap-2">
+        {{range .Ctx.Hosts}}
+        <span class="text-sm px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-600">
+          {{.FullName}} @{{.Username}}{{if .IsCreator}} · creator{{else if eq .Role "co_host"}} · co-host{{end}}
+        </span>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+
+    <h2 class="font-semibold mb-3">Invite people</h2>
+    <div class="space-y-3">
+      <div class="flex flex-wrap gap-2 min-h-[2rem]" x-show="selected.length">
+        <template x-for="u in selected" :key="u.id">
+          <span class="inline-flex items-center gap-1 text-sm px-2.5 py-1 rounded-full bg-blue-900/40 border border-blue-500/30">
+            <span x-text="u.full_name || u.username"></span>
+            <span class="text-slate-400 text-xs" x-text="'@' + u.username"></span>
+            <button type="button" @click="removeUser(u.id)" class="ml-1 opacity-70 hover:opacity-100" aria-label="Remove">✕</button>
+          </span>
+        </template>
+      </div>
+
+      <div class="relative">
+        <input type="text" x-model="query" @input="onInput()" @focus="search()"
+          placeholder="Search by name, @username, or email…"
+          class="w-full border rounded-lg px-3 py-2 text-sm bg-slate-900/40">
+        <div x-show="open" x-cloak class="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 shadow-xl">
+          <template x-for="s in suggestions" :key="s.id">
+            <button type="button" @click="addUser(s)"
+              class="w-full text-left px-3 py-2 text-sm hover:bg-slate-800 flex flex-col">
+              <span x-text="s.full_name" class="font-medium"></span>
+              <span class="text-xs text-slate-400"><span x-text="'@' + s.username"></span> · <span x-text="s.email"></span></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <form method="POST" action="/events/{{.Event.ID}}/invite-batch" class="flex gap-2">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <template x-for="u in selected" :key="'hid-' + u.id">
+          <input type="hidden" name="user_ids" :value="u.id">
+        </template>
+        <button type="submit" class="fn-btn fn-btn-blue text-sm" :disabled="selected.length === 0">Send invites</button>
+        <span class="text-xs text-slate-500 self-center" x-show="selected.length" x-text="selected.length + ' selected'"></span>
+      </form>
+      <p class="text-xs text-slate-500">Type to search, click to add one by one, then send all invites together.</p>
+    </div>
+
+    <div class="mt-8">
+      <h3 class="text-sm font-medium text-slate-300 mb-2">Sent invitations</h3>
+      {{if .Ctx.Invitations.Items}}
+      <ul class="space-y-2">
+        {{range .Ctx.Invitations.Items}}
+        <li class="flex flex-wrap items-center justify-between gap-2 text-sm py-2 px-3 rounded-lg bg-slate-900/40">
+          <div>
+            <span class="font-medium">{{.FullName}}</span>
+            <span class="text-slate-500">@{{.Username}}</span>
+            <span class="text-slate-600 text-xs block">{{.Email}}</span>
+            <span class="text-slate-500 text-xs block">Invited by {{.InviterName}} @{{.InviterUsername}}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            {{if eq .Status "accepted"}}
+            <span class="text-xs uppercase text-green-400 font-medium">Accepted</span>
+            <form method="POST" action="/events/{{$.Event.ID}}/members/{{.InviteeID}}/promote-host">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button type="submit" class="text-xs border border-slate-500 px-2 py-1 rounded-lg hover:bg-slate-800">Make co-host</button>
+            </form>
+            {{else if eq .Status "pending"}}
+            <span class="text-xs uppercase text-amber-300 font-medium">Invited</span>
+            {{else}}
+            <span class="text-xs uppercase text-slate-500">{{.Status}}</span>
+            {{end}}
+          </div>
+        </li>
+        {{end}}
+      </ul>
+      {{if gt .Ctx.Invitations.TotalPages 1}}
+      <div class="flex gap-2 mt-3 text-sm">
+        {{if gt .Ctx.Invitations.Page 1}}
+        <a href="/events/{{.Event.ID}}?inv_page={{sub .Ctx.Invitations.Page 1}}" class="border px-3 py-1 rounded-lg">← Prev</a>
+        {{end}}
+        <span class="text-slate-500 self-center">Page {{.Ctx.Invitations.Page}} / {{.Ctx.Invitations.TotalPages}}</span>
+        {{if lt .Ctx.Invitations.Page .Ctx.Invitations.TotalPages}}
+        <a href="/events/{{.Event.ID}}?inv_page={{add .Ctx.Invitations.Page 1}}" class="border px-3 py-1 rounded-lg">Next →</a>
+        {{end}}
+      </div>
+      {{end}}
+      {{else}}
+      <p class="text-sm text-slate-500">No invitations sent yet.</p>
+      {{end}}
+    </div>
+
+    {{if eq .Event.Visibility "public"}}
+    {{if .Ctx.PendingJoinRequests}}
+    <div class="mt-8">
+      <h3 class="text-sm font-medium text-slate-400 mb-2">Join requests — approve to let them in</h3>
+      <ul class="space-y-3">
+        {{range .Ctx.PendingJoinRequests}}
+        <li class="p-3 rounded-lg bg-slate-900/40">
+          <div class="font-medium">{{.FullName}} <span class="text-slate-500 text-sm">@{{.Username}}</span></div>
+          {{if .Message}}<p class="text-sm text-slate-400 mt-1">{{.Message}}</p>{{end}}
+          <div class="flex gap-2 mt-2">
+            <form method="POST" action="/events/{{$.Event.ID}}/requests/{{.ID}}/accept">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button class="bg-green-600 text-white px-3 py-1 rounded-lg text-sm">Accept</button>
+            </form>
+            <form method="POST" action="/events/{{$.Event.ID}}/requests/{{.ID}}/reject">
+              <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+              <button class="border px-3 py-1 rounded-lg text-sm">Decline</button>
+            </form>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
+    {{end}}
+  </section>
+  {{end}}
 </div>
 </main>
+<script src="/static/js/event-invite.js"></script>
+<style>[x-cloak]{display:none!important}</style>
 </body>
 </html>
 {{end}}
