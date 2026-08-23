@@ -244,16 +244,16 @@
     const liveSharing = isMeLiveSharing(u);
     const cls = [
       'disc-marker',
-      u.online ? '' : 'offline',
+      u.online ? 'online' : 'offline',
       u.is_me ? 'me' : '',
       (u.live || liveSharing) ? 'live' : ''
     ].filter(Boolean).join(' ');
 
     let inner;
     if (u.photo_url) {
-      inner = `<div class="${cls}"><img src="${escapeAttr(u.photo_url)}" alt=""><span class="dot"></span></div>`;
+      inner = `<div class="${cls}"><img src="${escapeAttr(u.photo_url)}" alt=""><span class="dot" aria-hidden="true"></span></div>`;
     } else {
-      inner = `<div class="${cls}">${escapeHtml(u.initials || '?')}<span class="dot"></span></div>`;
+      inner = `<div class="${cls}">${escapeHtml(u.initials || '?')}<span class="dot" aria-hidden="true"></span></div>`;
     }
 
     if (liveSharing) {
@@ -306,16 +306,17 @@
       return;
     }
     list.innerHTML = users.map((u) => {
+      const statusCls = u.online ? 'online' : 'offline';
       const avatar = u.photo_url
-        ? `<div class="disc-marker" style="width:36px;height:36px;flex-shrink:0"><img src="${escapeAttr(u.photo_url)}" alt=""></div>`
-        : `<div class="disc-marker" style="width:36px;height:36px;font-size:11px;flex-shrink:0">${escapeHtml(u.initials || '?')}</div>`;
+        ? `<div class="disc-marker ${statusCls}" style="width:36px;height:36px;flex-shrink:0"><img src="${escapeAttr(u.photo_url)}" alt=""><span class="dot" aria-hidden="true"></span></div>`
+        : `<div class="disc-marker ${statusCls}" style="width:36px;height:36px;font-size:11px;flex-shrink:0">${escapeHtml(u.initials || '?')}<span class="dot" aria-hidden="true"></span></div>`;
       return `
       <button type="button" data-username="${escapeAttr(u.username)}"
         style="width:100%;text-align:left;display:flex;gap:.75rem;align-items:center;padding:.55rem;border-radius:.85rem;background:transparent;border:0;color:#fff;cursor:pointer">
         ${avatar}
         <span style="min-width:0;flex:1">
           <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.full_name)}${u.is_me ? ' (You)' : ''}</span>
-          <span style="display:block;font-size:.72rem;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.profession || 'Professional')} · ${u.distance_km} km</span>
+          <span style="display:block;font-size:.72rem;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.profession || 'Professional')} · ${u.distance_km} km · ${u.online ? 'Online' : 'Offline'}</span>
         </span>
       </button>`;
     }).join('');

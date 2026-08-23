@@ -28,23 +28,36 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 13px; font-weight: 700; color: #fff;
       background: #3b82f6;
-      overflow: hidden;
+      overflow: visible;
       cursor: pointer;
       position: relative;
     }
-    .disc-marker img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .disc-marker.offline { background: #64748b; }
-    .disc-marker.me { background: #e11d48; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.35), 0 3px 10px rgba(5,8,22,.45); }
-    .disc-marker.live { background: #22c55e; }
+    .disc-marker img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+      border-radius: 9999px;
+    }
+    .disc-marker.online { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 3px 10px rgba(5,8,22,.45); }
+    .disc-marker.offline { background: #64748b; box-shadow: 0 3px 10px rgba(5, 8, 22, 0.45); }
+    .disc-marker.me {
+      box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.55), 0 3px 10px rgba(5,8,22,.45);
+    }
+    .disc-marker.me.online,
+    .disc-marker.live {
+      background: #22c55e;
+    }
     .disc-marker.me.live {
       background: #22c55e !important;
       box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.45), 0 3px 10px rgba(5,8,22,.45) !important;
     }
     .disc-marker .dot {
-      position: absolute; right: 0; bottom: 0;
-      width: 12px; height: 12px; border-radius: 9999px;
+      position: absolute; right: -2px; bottom: -2px;
+      width: 14px; height: 14px; border-radius: 9999px;
       border: 2px solid #fff; background: #22c55e;
+      box-shadow: 0 1px 4px rgba(5, 8, 22, 0.35);
+      z-index: 2;
+      pointer-events: none;
     }
+    .disc-marker.online .dot { background: #22c55e; }
     .disc-marker.offline .dot { background: #94a3b8; }
     .disc-marker.live .dot { background: #facc15; }
 
