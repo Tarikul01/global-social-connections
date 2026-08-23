@@ -36,10 +36,17 @@ func (ctrl *Controller) LandingMap(c *gin.Context) {
 	total, online, _ := ctrl.svc.CountDiscoverable(c.Request.Context())
 	loggedIn := false
 	liveOn := false
+	var myLat, myLng float64
+	hasMyLoc := false
 	if u, ok := auth.CurrentUser(c); ok {
 		loggedIn = true
 		if ctrl.loc != nil {
 			liveOn = ctrl.loc.IsLiveSharing(c.Request.Context(), u.ID)
+		}
+		// Permanent/live map position for ◎ locate (no browser GPS required).
+		if me, err := ctrl.svc.MyMapMarker(c.Request.Context(), u.ID, 23.8103, 90.4125); err == nil && me != nil {
+			myLat, myLng = me.Latitude, me.Longitude
+			hasMyLoc = true
 		}
 	}
 	view.Render(c, ctrl.tmpl, ctrl.cfg, "landing.html", gin.H{
@@ -48,6 +55,9 @@ func (ctrl *Controller) LandingMap(c *gin.Context) {
 		"OnlinePeople": online,
 		"LoggedIn":     loggedIn,
 		"LiveOn":       liveOn,
+		"HasMyLoc":     hasMyLoc,
+		"MyLat":        myLat,
+		"MyLng":        myLng,
 	})
 }
 

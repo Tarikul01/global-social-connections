@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FindNeighbour · Global Social Connections</title>
+  <title>Discover · FindNeighbour</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
@@ -12,88 +12,277 @@
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <link rel="stylesheet" href="/static/css/app.css">
   <style>
-    html, body { height: 100%; margin: 0; }
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #0f172a; }
     #map { position: absolute; inset: 0; z-index: 0; }
-    .person-marker {
-      width: 40px; height: 40px; border-radius: 9999px;
-      border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+
+    .disc-marker {
+      width: 46px; height: 46px; border-radius: 9999px;
+      border: 3px solid #fff;
+      box-shadow: 0 3px 10px rgba(5, 8, 22, 0.45);
       display: flex; align-items: center; justify-content: center;
-      font-size: 12px; font-weight: 700; color: #fff; position: relative;
-      background: #6366f1; cursor: pointer;
+      font-size: 13px; font-weight: 700; color: #fff;
+      background: #3b82f6;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
     }
-    .person-marker.offline { background: #64748b; opacity: .85; }
-    .person-marker.me { background: #0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.35); }
-    .person-marker.live { background: #10b981; }
-    .person-marker .dot {
-      position: absolute; right: -1px; bottom: -1px;
+    .disc-marker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .disc-marker.offline { background: #64748b; }
+    .disc-marker.me { background: #e11d48; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.35), 0 3px 10px rgba(5,8,22,.45); }
+    .disc-marker.live { background: #22c55e; }
+    .disc-marker .dot {
+      position: absolute; right: 0; bottom: 0;
       width: 12px; height: 12px; border-radius: 9999px;
       border: 2px solid #fff; background: #22c55e;
     }
-    .person-marker.live .dot { background: #fbbf24; animation: pulse 1.2s infinite; }
-    @keyframes pulse { 50% { transform: scale(1.15); } }
-    .person-marker.offline .dot { background: #94a3b8; }
-    .bottom-sheet {
-      position: absolute; left: 50%; transform: translateX(-50%);
-      bottom: 16px; width: min(720px, calc(100% - 24px));
-      background: rgba(15, 23, 42, 0.92); color: #fff;
-      border-radius: 18px; backdrop-filter: blur(10px);
-      box-shadow: 0 12px 40px rgba(0,0,0,.35); z-index: 1000;
+    .disc-marker.offline .dot { background: #94a3b8; }
+    .disc-marker.live .dot { background: #facc15; }
+
+    .disc-controls {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
     }
+    .disc-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 9999px;
+      border: none;
+      background: #3b82f6;
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(59, 130, 246, 0.4);
+      font-size: 1.15rem;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s ease, transform .15s ease;
+    }
+    .disc-btn:hover { background: #2563eb; }
+    .disc-btn.is-active { background: #facc15; color: #0f172a; box-shadow: 0 0 0 3px rgba(250,204,21,.4); }
+    .disc-btn.is-locating { animation: pulse-btn 1s ease infinite; }
+    @keyframes pulse-btn { 50% { transform: scale(1.08); background: #60a5fa; } }
+
+    .disc-menu-btn {
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      z-index: 1100;
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 9999px;
+      border: none;
+      background: rgba(15, 23, 42, 0.88);
+      color: #fff;
+      box-shadow: 0 6px 18px rgba(0,0,0,.28);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      backdrop-filter: blur(8px);
+    }
+
+    .disc-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 1050;
+      background: rgba(2, 6, 23, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .28s ease;
+    }
+    body.nav-open .disc-backdrop {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .disc-sidenav {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: min(300px, 86vw);
+      z-index: 1200;
+      background: #0b1224;
+      color: #fff;
+      border-right: 1px solid rgba(148, 163, 184, 0.16);
+      box-shadow: 12px 0 40px rgba(0,0,0,.45);
+      transform: translateX(-105%);
+      transition: transform .32s cubic-bezier(.22, 1, .36, 1);
+      display: flex;
+      flex-direction: column;
+      padding: 1.1rem 0.9rem 1.25rem;
+    }
+    body.nav-open .disc-sidenav { transform: translateX(0); }
+
+    .disc-sidenav__brand {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.35rem 0.4rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 0.75rem;
+    }
+    .disc-sidenav__brand strong { font-size: 1.05rem; }
+    .disc-sidenav__brand span { display: block; font-size: 0.72rem; opacity: 0.5; margin-top: 0.15rem; }
+    .disc-sidenav__close {
+      width: 2rem; height: 2rem; border-radius: 9999px; border: 0;
+      background: rgba(255,255,255,0.08); color: #fff; cursor: pointer;
+    }
+    .disc-nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.8rem 0.85rem;
+      border-radius: 0.85rem;
+      color: #e5e7eb;
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: background .2s ease;
+      border: 0;
+      background: transparent;
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+    }
+    .disc-nav-link:hover { background: rgba(255,255,255,0.08); }
+    .disc-nav-link .ico {
+      width: 1.75rem; text-align: center; opacity: 0.9;
+    }
+    .disc-nav-foot {
+      margin-top: auto;
+      padding-top: 1rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      font-size: 0.72rem;
+      opacity: 0.5;
+      padding-left: 0.85rem;
+    }
+
+    .disc-panel {
+      position: absolute;
+      right: 1rem;
+      top: 12rem;
+      bottom: 1rem;
+      width: min(340px, calc(100vw - 2rem));
+      background: rgba(15, 23, 42, 0.92);
+      color: #fff;
+      border-radius: 1.1rem;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 16px 40px rgba(0,0,0,.35);
+      z-index: 1000;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .disc-panel.is-open { display: flex; }
+    .disc-panel-head {
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .disc-panel-head input, .disc-panel-head select {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 0.7rem;
+      color: #fff;
+      padding: 0.45rem 0.65rem;
+      font-size: 0.8rem;
+      outline: none;
+    }
+    .disc-panel-head input { flex: 1; min-width: 0; }
+    .disc-panel-close {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .disc-panel-close:hover { background: rgba(255,255,255,0.18); }
+    #people-list { flex: 1; overflow-y: auto; padding: 0.65rem; }
     .leaflet-control-attribution { font-size: 10px; }
+    body.is-map-expanded .disc-panel,
+    body.is-map-expanded .disc-menu-btn { opacity: 0; pointer-events: none; }
   </style>
 </head>
-<body class="overflow-hidden bg-slate-950">
+<body>
   <div id="map"></div>
 
-  <header class="absolute top-0 inset-x-0 z-[1000] flex items-center justify-between px-4 py-3 pointer-events-none">
-    <div class="pointer-events-auto bg-slate-900/80 text-white px-4 py-2 rounded-full shadow">
-      <span class="font-semibold tracking-tight">FindNeighbour</span>
-      <span class="text-white/50 text-xs ml-2">GSC · Global Social Connections</span>
-    </div>
-    <div class="pointer-events-auto flex gap-2 items-center">
-      {{if .LoggedIn}}
-        <button type="button" id="live-toggle" data-on="{{if .LiveOn}}1{{else}}0{{end}}"
-          class="text-sm px-4 py-2 rounded-full shadow {{if .LiveOn}}bg-emerald-500{{else}}bg-slate-900/80{{end}} text-white"
-          title="Share live location (permanent address stays the same)">{{if .LiveOn}}Live ON{{else}}Live location{{end}}</button>
-        <a href="/profile/edit" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Profile</a>
-        <form method="POST" action="/auth/logout" class="inline">
-          <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-          <button type="submit" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Logout</button>
-        </form>
-      {{else}}
-        <a href="/auth/login?next=/onboarding" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-full shadow">Add me on map</a>
-        <a href="/auth/login?next=/" class="bg-white/90 text-slate-900 text-sm px-4 py-2 rounded-full shadow">Login</a>
-      {{end}}
-    </div>
-  </header>
+  <button type="button" class="disc-menu-btn" id="menu-toggle" title="Open menu" aria-label="Open menu">☰</button>
 
-  <div class="absolute right-3 top-20 z-[1000] flex flex-col gap-2">
-    <button id="zoom-in" class="w-10 h-10 rounded-full bg-indigo-600 text-white shadow text-xl">+</button>
-    <button id="zoom-out" class="w-10 h-10 rounded-full bg-indigo-600 text-white shadow text-xl">−</button>
-    <button id="locate-me" class="w-10 h-10 rounded-full bg-slate-900/80 text-white shadow text-sm" title="My location">◎</button>
+  <div class="disc-backdrop" id="nav-backdrop" aria-hidden="true"></div>
+
+  <nav class="disc-sidenav" id="side-nav" aria-label="Main menu">
+    <div class="disc-sidenav__brand">
+      <div>
+        <strong>FindNeighbour</strong>
+        <span>GSC · Discover</span>
+      </div>
+      <button type="button" class="disc-sidenav__close" id="nav-close" title="Close">✕</button>
+    </div>
+
+    <a class="disc-nav-link" href="/"><span class="ico">🗺</span> Discover map</a>
+    {{if .LoggedIn}}
+      <a class="disc-nav-link" href="/profile"><span class="ico">👤</span> My profile</a>
+      <a class="disc-nav-link" href="/profile?edit=1"><span class="ico">✎</span> Edit profile</a>
+      <a class="disc-nav-link" href="/connections"><span class="ico">🤝</span> Connections</a>
+      <a class="disc-nav-link" href="/messages"><span class="ico">💬</span> Messages</a>
+      <a class="disc-nav-link" href="/events"><span class="ico">📅</span> Events</a>
+      <a class="disc-nav-link" href="/notifications"><span class="ico">🔔</span> Notifications</a>
+      <button type="button" class="disc-nav-link" id="live-toggle" data-on="{{if .LiveOn}}1{{else}}0{{end}}" title="Stop sharing live position">
+        <span class="ico">📍</span>
+        <span id="live-toggle-label">{{if .LiveOn}}Stop live tracking{{else}}Live sharing (optional){{end}}</span>
+      </button>
+      <form method="POST" action="/auth/logout" style="margin:0">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button type="submit" class="disc-nav-link"><span class="ico">⎋</span> Logout</button>
+      </form>
+    {{else}}
+      <a class="disc-nav-link" href="/auth/login?next=/"><span class="ico">🔑</span> Login</a>
+      <a class="disc-nav-link" href="/auth/register"><span class="ico">✨</span> Register</a>
+      <a class="disc-nav-link" href="/auth/login?next=/onboarding"><span class="ico">📌</span> Join the map</a>
+    {{end}}
+
+    <div class="disc-nav-foot">Global Social Connections</div>
+  </nav>
+
+  <div class="disc-controls" aria-label="Map controls">
+    <button type="button" class="disc-btn" id="zoom-in" title="Zoom in">+</button>
+    <button type="button" class="disc-btn" id="zoom-out" title="Zoom out">−</button>
+    <button type="button" class="disc-btn" id="expand-map" title="Expand map">⛶</button>
+    <button type="button" class="disc-btn" id="locate-me" title="Zoom to my saved location">◎</button>
+    <button type="button" class="disc-btn" id="toggle-people" title="People nearby">👤</button>
   </div>
 
-  <section class="bottom-sheet" id="sheet">
-    <div class="flex gap-2 p-3 border-b border-white/10">
-      <button data-tab="people" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-indigo-600">People (<span id="people-count">{{.TotalPeople}}</span>)</button>
-      <button data-tab="online" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-white/10">Online (<span id="online-count">{{.OnlinePeople}}</span>)</button>
-      <button data-tab="offline" class="tab-btn px-3 py-1.5 rounded-full text-sm bg-white/10">Offline</button>
-    </div>
-    <div class="p-3 flex gap-2">
-      <input id="search" type="search" placeholder="Search people, cities..."
-             class="flex-1 rounded-xl bg-white/10 border border-white/10 px-3 py-2 text-sm outline-none placeholder:text-white/40">
-      <select id="status-filter" class="rounded-xl bg-white/10 border border-white/10 px-3 py-2 text-sm">
+  <aside class="disc-panel" id="people-panel" aria-label="People nearby">
+    <div class="disc-panel-head">
+      <input id="search" type="search" placeholder="Search people...">
+      <select id="status-filter">
         <option value="">All</option>
         <option value="online">Online</option>
         <option value="offline">Offline</option>
       </select>
+      <button type="button" class="disc-panel-close" id="people-panel-close" title="Close" aria-label="Close people list">✕</button>
     </div>
-    <div id="people-list" class="max-h-48 overflow-y-auto px-3 pb-3 space-y-2"></div>
-    <div class="px-4 py-2 text-xs text-white/60 flex justify-between border-t border-white/10">
-      <span id="footer-stats">{{.TotalPeople}} people found worldwide</span>
-      <span>{{.OnlinePeople}} online now</span>
+    <div id="people-list"></div>
+    <div style="padding:.65rem 1rem;font-size:.72rem;opacity:.65;border-top:1px solid rgba(255,255,255,.08)">
+      <span id="footer-stats">{{.TotalPeople}} people worldwide</span>
+      · <span id="online-count">{{.OnlinePeople}}</span> online
+      · <span id="people-count" class="sr-only">{{.TotalPeople}}</span>
     </div>
-  </section>
+  </aside>
 
   <script>
     window.FN_MAP = {
@@ -101,7 +290,9 @@
       csrf: {{if .CSRFToken}}"{{.CSRFToken}}"{{else}}""{{end}},
       liveOn: {{if .LiveOn}}true{{else}}false{{end}},
       total: {{.TotalPeople}},
-      online: {{.OnlinePeople}}
+      online: {{.OnlinePeople}},
+      myLat: {{if .HasMyLoc}}{{printf "%.7f" .MyLat}}{{else}}null{{end}},
+      myLng: {{if .HasMyLoc}}{{printf "%.7f" .MyLng}}{{else}}null{{end}}
     };
   </script>
   <script src="/static/js/map-home.js"></script>

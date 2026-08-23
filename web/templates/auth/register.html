@@ -2,38 +2,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {{template "partials/head.html" .}}
   <title>Register · FindNeighbour</title>
-  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-50 min-h-screen flex items-center justify-center">
-  <div class="bg-white p-8 rounded-2xl shadow-sm w-full max-w-md">
-    <h1 class="text-2xl font-bold mb-2">Create Account</h1>
+<body class="fn-theme min-h-screen flex items-center justify-center px-4">
+  <div class="bg-white p-8 rounded-2xl border w-full max-w-md shadow-[0_0_60px_rgba(59,130,246,0.12)]">
+    <h1 class="text-2xl font-bold mb-2 text-white">Create Account</h1>
     <p class="text-sm text-slate-500 mb-6">Create an account to appear on the map and connect.</p>
-    {{if .Error}}<p class="text-red-600 mb-4">{{.Error}}</p>{{end}}
+    {{if .Error}}<p class="text-red-400 mb-4">{{.Error}}</p>{{end}}
     <form method="POST" action="/auth/register" class="space-y-4">
       <input type="hidden" name="next" value="{{.Next}}">
       <div>
-        <label class="block text-sm font-medium mb-1">Full Name</label>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Full Name</label>
         <input type="text" name="full_name" required class="w-full border rounded-lg px-3 py-2">
       </div>
       <div>
-        <label class="block text-sm font-medium mb-1">Username</label>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Username</label>
         <input type="text" name="username" required pattern="[a-zA-Z0-9_]{3,30}" class="w-full border rounded-lg px-3 py-2">
       </div>
       <div>
-        <label class="block text-sm font-medium mb-1">Email</label>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Email</label>
         <input type="email" name="email" required class="w-full border rounded-lg px-3 py-2">
       </div>
       <div>
-        <label class="block text-sm font-medium mb-1">Password</label>
+        <label class="block text-sm font-medium mb-1 text-slate-300">Password</label>
         <input type="password" name="password" required minlength="8" class="w-full border rounded-lg px-3 py-2">
       </div>
-      <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded-lg">Register</button>
+      <button type="submit" class="fn-btn fn-btn-primary w-full">Register</button>
     </form>
-    <p class="mt-4 text-sm text-center">
-      <a href="/auth/login?next={{.Next}}" class="text-indigo-600">Already have an account?</a>
+    <p class="mt-4 text-sm text-center text-slate-400">
+      <a href="/auth/login?next={{.Next}}" class="text-[color:var(--fn-blue-bright)]">Already have an account?</a>
       · <a href="/" class="text-slate-500">Back to map</a>
     </p>
   </div>

@@ -80,8 +80,8 @@ func registerWeb(r *gin.Engine, d Deps) {
 	webGroup := r.Group("/")
 	{
 		webGroup.GET("/", d.DiscCtrl.LandingMap)
-		webGroup.GET("/explore", d.UserCtrl.RenderNearbyWeb)
-		webGroup.GET("/discover", d.UserCtrl.RenderNearbyWeb) // alias
+		webGroup.GET("/explore", d.DiscCtrl.LandingMap)
+		webGroup.GET("/discover", d.DiscCtrl.LandingMap)
 
 		webGroup.GET("/auth/login", d.AuthCtrl.LoginForm)
 		webGroup.POST("/auth/login", middleware.RateLimit(d.Pool, "login", 5), d.AuthCtrl.Login)

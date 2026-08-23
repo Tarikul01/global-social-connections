@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/google/uuid"
@@ -23,12 +24,14 @@ func NewRepository(pool *pgxpool.Pool) *PgRepository {
 func (r *PgRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Profile, error) {
 	var p Profile
 	var profName *string
+	var birthday *time.Time
 	err := r.pool.QueryRow(ctx, `
 		SELECT p.id, p.user_id, p.full_name, COALESCE(p.bio,''), COALESCE(p.about,''),
 			COALESCE(p.company,''), COALESCE(p.job_title,''), p.experience_years, p.profession_id,
 			pr.name, p.availability_status, p.looking_for, p.is_verified, p.onboarding_completed,
 			u.username, u.email,
-			COALESCE(p.pitch_url,''), COALESCE(p.personal_quote,''), COALESCE(p.profile_views_count,0)
+			COALESCE(p.pitch_url,''), COALESCE(p.personal_quote,''), COALESCE(p.profile_views_count,0),
+			COALESCE(p.gender,''), p.birthday
 		FROM profiles p
 		JOIN users u ON u.id = p.user_id
 		LEFT JOIN professions pr ON pr.id = p.profession_id
@@ -36,12 +39,16 @@ func (r *PgRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Prof
 	`, userID).Scan(&p.ID, &p.UserID, &p.FullName, &p.Bio, &p.About, &p.Company, &p.JobTitle,
 		&p.ExperienceYears, &p.ProfessionID, &profName, &p.AvailabilityStatus, &p.LookingFor,
 		&p.IsVerified, &p.OnboardingCompleted, &p.Username, &p.Email,
-		&p.PitchURL, &p.PersonalQuote, &p.ProfileViews)
+		&p.PitchURL, &p.PersonalQuote, &p.ProfileViews, &p.Gender, &birthday)
 	if err != nil {
 		return nil, err
 	}
 	if profName != nil {
 		p.ProfessionName = *profName
+	}
+	p.Birthday = birthday
+	if birthday != nil {
+		p.BirthdayDisplay = birthday.Format("January 2, 2006")
 	}
 	return &p, nil
 }
@@ -59,10 +66,11 @@ func (r *PgRepository) Update(ctx context.Context, userID uuid.UUID, in UpdateIn
 	_, err := r.pool.Exec(ctx, `
 		UPDATE profiles SET full_name=$2, bio=$3, about=$4, company=$5, job_title=$6,
 			experience_years=$7, profession_id=$8, availability_status=$9, looking_for=$10,
-			pitch_url=$11, personal_quote=$12, updated_at=now()
+			pitch_url=$11, personal_quote=$12, gender=$13, birthday=$14, updated_at=now()
 		WHERE user_id=$1
 	`, userID, in.FullName, in.Bio, in.About, in.Company, in.JobTitle, in.ExperienceYears,
-		in.ProfessionID, in.AvailabilityStatus, in.LookingFor, in.PitchURL, in.PersonalQuote)
+		in.ProfessionID, in.AvailabilityStatus, in.LookingFor, in.PitchURL, in.PersonalQuote,
+		in.Gender, in.Birthday)
 	return err
 }
 

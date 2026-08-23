@@ -3,7 +3,9 @@ package discovery
 import (
 	"context"
 	"math"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/google/uuid"
@@ -21,6 +23,7 @@ type NearbyUser struct {
 	Availability string    `json:"availability"`
 	Online       bool      `json:"online"`
 	Initials     string    `json:"initials"`
+	PhotoURL     string    `json:"photo_url,omitempty"`
 	MarkerType   string    `json:"marker_type"`
 	IsMe         bool      `json:"is_me"`
 	Live         bool      `json:"live"`
@@ -82,12 +85,14 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 				WHERE ll.user_id = u.id AND ll.event_id IS NULL
 				  AND ls.live_sharing_enabled = true
 				  AND ll.updated_at > now() - interval '5 minutes'
-			) AS is_live
+			) AS is_live,
+			COALESCE(f.storage_path, '') AS photo_path
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
 		JOIN user_locations ul ON ul.user_id = u.id
 		JOIN location_settings ls ON ls.user_id = u.id
 		LEFT JOIN professions pr ON pr.id = p.profession_id
+		LEFT JOIN files f ON f.id = p.profile_photo_file_id
 		WHERE u.deleted_at IS NULL
 		  AND ($3::uuid IS NULL OR u.id != $3)
 		  AND ls.discovery_enabled = true
@@ -143,7 +148,8 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 	for rows.Next() {
 		var u NearbyUser
 		var isLive bool
-		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Profession, &u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive); err != nil {
+		var photoPath string
+		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Profession, &u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive, &photoPath); err != nil {
 			return nil, err
 		}
 		u.Live = isLive
@@ -153,6 +159,7 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		}
 		u.Online = u.Availability != "" && u.Availability != "offline"
 		u.Initials = initials(u.FullName)
+		u.PhotoURL = publicPhotoURL(photoPath)
 		u.DistanceKm = math.Round(u.DistanceKm*10) / 10
 		list = append(list, u)
 	}
@@ -163,6 +170,7 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 func (s *Service) MyMapMarker(ctx context.Context, userID uuid.UUID, viewLat, viewLng float64) (*NearbyUser, error) {
 	var u NearbyUser
 	var isLive bool
+	var photoPath string
 	err := s.pool.QueryRow(ctx, `
 		SELECT u.id, u.username, p.full_name, COALESCE(pr.name,''),
 			COALESCE(
@@ -191,16 +199,18 @@ func (s *Service) MyMapMarker(ctx context.Context, userID uuid.UUID, viewLat, vi
 				WHERE ll.user_id = u.id AND ll.event_id IS NULL
 				  AND ls.live_sharing_enabled = true
 				  AND ll.updated_at > now() - interval '5 minutes'
-			)
+			),
+			COALESCE(f.storage_path, '')
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
 		JOIN user_locations ul ON ul.user_id = u.id
 		JOIN location_settings ls ON ls.user_id = u.id
 		LEFT JOIN professions pr ON pr.id = p.profession_id
+		LEFT JOIN files f ON f.id = p.profile_photo_file_id
 		WHERE u.id = $3 AND u.deleted_at IS NULL AND ul.geom IS NOT NULL
 	`, viewLat, viewLng, userID).Scan(
 		&u.ID, &u.Username, &u.FullName, &u.Profession,
-		&u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive,
+		&u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive, &photoPath,
 	)
 	if err != nil {
 		return nil, err
@@ -216,6 +226,7 @@ func (s *Service) MyMapMarker(ctx context.Context, userID uuid.UUID, viewLat, vi
 		u.Online = false
 	}
 	u.Initials = initials(u.FullName)
+	u.PhotoURL = publicPhotoURL(photoPath)
 	u.DistanceKm = math.Round(u.DistanceKm*10) / 10
 	return &u, nil
 }
@@ -253,4 +264,16 @@ func initials(name string) string {
 		return out[:2]
 	}
 	return out
+}
+
+func publicPhotoURL(storagePath string) string {
+	if storagePath == "" {
+		return ""
+	}
+	base := strings.TrimRight(os.Getenv("SUPABASE_URL"), "/")
+	if base == "" {
+		return ""
+	}
+	path := strings.TrimPrefix(storagePath, "avatars/")
+	return base + "/storage/v1/object/public/avatars/" + path
 }

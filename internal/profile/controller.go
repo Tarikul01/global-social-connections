@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/findneighbour/findneighbour/internal/auth"
 	"github.com/findneighbour/findneighbour/internal/config"
@@ -114,6 +115,58 @@ func (ctrl *Controller) Dashboard(c *gin.Context) {
 	view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/dashboard.html", gin.H{"Title": "Dashboard", "Profile": p})
 }
 
+func (ctrl *Controller) attachEditData(c *gin.Context, data gin.H, userID uuid.UUID, p *Profile) {
+	ctx := c.Request.Context()
+	professions, _ := ctrl.svc.ListProfessions(ctx)
+	tags, _ := ctrl.svc.GetTags(ctx, userID)
+	skills, _ := ctrl.svc.GetSkills(ctx, userID)
+	links, _ := ctrl.svc.GetSocialLinks(ctx, userID)
+	tagSet := map[string]bool{}
+	for _, t := range tags {
+		tagSet[t.Name] = true
+	}
+	skillSet := map[string]bool{}
+	suggestedSet := map[string]bool{}
+	for _, name := range suggestedInterests {
+		suggestedSet[name] = true
+	}
+	var customSkills []string
+	for _, s := range skills {
+		skillSet[s.Name] = true
+		if !suggestedSet[s.Name] {
+			customSkills = append(customSkills, s.Name)
+		}
+	}
+	linkMap := map[string]string{}
+	for _, l := range links {
+		linkMap[l.Platform] = l.URL
+	}
+	addr, _ := ctrl.svc.GetAddress(ctx, userID)
+	lat, lng, city, region, country := 23.8103, 90.4125, "", "", ""
+	if addr.OK {
+		lat, lng, city, region, country = addr.Lat, addr.Lng, addr.City, addr.Region, addr.Country
+	}
+	birthdayISO := ""
+	if p != nil && p.Birthday != nil {
+		birthdayISO = p.Birthday.Format("2006-01-02")
+	}
+	data["Professions"] = professions
+	data["SuggestedTags"] = suggestedTags
+	data["TagSet"] = tagSet
+	data["SuggestedInterests"] = suggestedInterests
+	data["SkillSet"] = skillSet
+	data["SkillNames"] = strings.Join(customSkills, ", ")
+	data["SocialPlatforms"] = socialPlatforms
+	data["LinkMap"] = linkMap
+	data["Lat"] = lat
+	data["Lng"] = lng
+	data["City"] = city
+	data["Region"] = region
+	data["Country"] = country
+	data["BirthdayISO"] = birthdayISO
+	data["CanEdit"] = true
+}
+
 func (ctrl *Controller) ShowOwn(c *gin.Context) {
 	u, ok := ctrl.requireAuth(c)
 	if !ok {
@@ -129,7 +182,11 @@ func (ctrl *Controller) ShowOwn(c *gin.Context) {
 		return
 	}
 	data := ctrl.profileViewData(c, p, true)
+	ctrl.attachEditData(c, data, u.ID, p)
 	data["Title"] = "My Profile"
+	if c.Query("edit") == "1" {
+		data["StartEditing"] = true
+	}
 	view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/show.html", data)
 }
 
@@ -152,51 +209,19 @@ func (ctrl *Controller) ShowPublic(c *gin.Context) {
 		_ = ctrl.svc.RecordView(c.Request.Context(), p.UserID, viewerID)
 		p.ProfileViews++
 	}
-	view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/show.html", ctrl.profileViewData(c, p, isOwn))
+	data := ctrl.profileViewData(c, p, isOwn)
+	if isOwn {
+		ctrl.attachEditData(c, data, p.UserID, p)
+	}
+	view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/show.html", data)
 }
 
+// EditForm redirects to the profile page in edit mode (same layout, inline fields).
 func (ctrl *Controller) EditForm(c *gin.Context) {
-	u, ok := ctrl.requireAuth(c)
-	if !ok {
+	if _, ok := ctrl.requireAuth(c); !ok {
 		return
 	}
-	p, _ := ctrl.svc.GetOwn(c.Request.Context(), u.ID)
-	professions, _ := ctrl.svc.ListProfessions(c.Request.Context())
-	tags, _ := ctrl.svc.GetTags(c.Request.Context(), u.ID)
-	skills, _ := ctrl.svc.GetSkills(c.Request.Context(), u.ID)
-	links, _ := ctrl.svc.GetSocialLinks(c.Request.Context(), u.ID)
-	tagSet := map[string]bool{}
-	for _, t := range tags {
-		tagSet[t.Name] = true
-	}
-	skillSet := map[string]bool{}
-	suggestedSet := map[string]bool{}
-	for _, name := range suggestedInterests {
-		suggestedSet[name] = true
-	}
-	var customSkills []string
-	for _, s := range skills {
-		skillSet[s.Name] = true
-		if !suggestedSet[s.Name] {
-			customSkills = append(customSkills, s.Name)
-		}
-	}
-	linkMap := map[string]string{}
-	for _, l := range links {
-		linkMap[l.Platform] = l.URL
-	}
-	addr, _ := ctrl.svc.GetAddress(c.Request.Context(), u.ID)
-	lat, lng, city := 23.8103, 90.4125, ""
-	if addr.OK {
-		lat, lng, city = addr.Lat, addr.Lng, addr.City
-	}
-	view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/edit.html", gin.H{
-		"Title": "Edit Profile", "Profile": p, "Professions": professions,
-		"SuggestedTags": suggestedTags, "TagSet": tagSet,
-		"SuggestedInterests": suggestedInterests, "SkillSet": skillSet, "SkillNames": strings.Join(customSkills, ", "),
-		"SocialPlatforms": socialPlatforms, "LinkMap": linkMap,
-		"Lat": lat, "Lng": lng, "City": city, "Region": addr.Region, "Country": addr.Country,
-	})
+	c.Redirect(http.StatusFound, "/profile?edit=1")
 }
 
 func (ctrl *Controller) Update(c *gin.Context) {
@@ -222,12 +247,24 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		Company: c.PostForm("company"), JobTitle: c.PostForm("job_title"), ExperienceYears: exp,
 		ProfessionID: profID, AvailabilityStatus: c.PostForm("availability_status"),
 		PitchURL: strings.TrimSpace(c.PostForm("pitch_url")), PersonalQuote: strings.TrimSpace(c.PostForm("personal_quote")),
+		Gender: strings.TrimSpace(c.PostForm("gender")),
+	}
+	if bday := strings.TrimSpace(c.PostForm("birthday")); bday != "" {
+		if t, err := time.Parse("2006-01-02", bday); err == nil {
+			in.Birthday = &t
+		}
 	}
 	if in.AvailabilityStatus == "" {
 		in.AvailabilityStatus = "available"
 	}
 	if err := ctrl.svc.Update(c.Request.Context(), u.ID, in); err != nil {
-		view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/edit.html", gin.H{"Title": "Edit Profile", "Error": err.Error(), "SuggestedTags": suggestedTags, "SuggestedInterests": suggestedInterests, "SocialPlatforms": socialPlatforms})
+		p, _ := ctrl.svc.GetOwn(c.Request.Context(), u.ID)
+		data := ctrl.profileViewData(c, p, true)
+		ctrl.attachEditData(c, data, u.ID, p)
+		data["Title"] = "My Profile"
+		data["StartEditing"] = true
+		data["Error"] = err.Error()
+		view.Render(c, ctrl.tmpl, ctrl.cfg, "profile/show.html", data)
 		return
 	}
 	_ = ctrl.svc.ReplaceTags(c.Request.Context(), u.ID, c.PostFormArray("tags"))

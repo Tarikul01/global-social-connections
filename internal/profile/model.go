@@ -28,6 +28,9 @@ type Profile struct {
 	PitchURL            string
 	PersonalQuote       string
 	ProfileViews        int
+	Gender              string
+	Birthday            *time.Time
+	BirthdayDisplay     string
 	CreatedAt           time.Time
 }
 
@@ -43,6 +46,8 @@ type UpdateInput struct {
 	LookingFor         []string
 	PitchURL           string
 	PersonalQuote      string
+	Gender             string
+	Birthday           *time.Time
 }
 
 type Tag struct {
