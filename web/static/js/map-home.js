@@ -20,6 +20,9 @@
   let selectedProfessions = new Set();
   let professionSearchQ = '';
   let professionPanelOpen = false;
+  let eventLayer = null;
+  let activeEventId = null;
+  let hostedEvents = [];
   // Near-realtime updates via HTTP polling (no Redis / WebSocket).
   const POLL_MS = Math.max(3000, Number(cfg.pollMs) || 8000);
 
@@ -39,6 +42,7 @@
     }).addTo(map);
 
     markerLayer = L.layerGroup().addTo(map);
+    eventLayer = L.layerGroup().addTo(map);
 
     document.getElementById('zoom-in').onclick = () => map.zoomIn();
     document.getElementById('zoom-out').onclick = () => map.zoomOut();
@@ -47,9 +51,12 @@
     document.getElementById('toggle-people').onclick = togglePanel;
     const panelClose = document.getElementById('people-panel-close');
     if (panelClose) panelClose.onclick = closePanel;
+    const eventClose = document.getElementById('hosted-events-close');
+    if (eventClose) eventClose.onclick = clearEventMode;
 
     setupSideNav();
     setupProfessionFilter();
+    if (cfg.loggedIn) loadHostedEvents();
 
     const search = document.getElementById('search');
     if (search) {
@@ -246,7 +253,8 @@
     if (document.hidden) {
       stopPolling();
     } else {
-      loadPeople();
+      if (activeEventId) refreshActiveEvent();
+      else loadPeople();
       startPolling();
     }
   }
@@ -255,7 +263,12 @@
     stopPolling();
     if (document.hidden) return;
     pollTimer = setInterval(function () {
-      if (!document.hidden) loadPeople();
+      if (document.hidden) return;
+      if (activeEventId) {
+        refreshActiveEvent();
+      } else {
+        loadPeople();
+      }
     }, POLL_MS);
   }
 
@@ -385,7 +398,7 @@
   window.FN_refreshLiveMarker = window.FN_applyLivePulse;
 
   function loadPeople() {
-    if (!map) return;
+    if (!map || activeEventId) return;
     if (loadInFlight) {
       loadQueued = true;
       return;
@@ -555,6 +568,144 @@
       window.location.href = path;
     } else {
       window.location.href = '/auth/login?next=' + encodeURIComponent(path);
+    }
+  }
+
+  function loadHostedEvents() {
+    fetch('/api/events/hosted', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+      .then((r) => r.json())
+      .then((body) => {
+        hostedEvents = body.data || [];
+        renderHostedEventsList();
+      })
+      .catch(() => {});
+  }
+
+  function renderHostedEventsList() {
+    const panel = document.getElementById('hosted-events-panel');
+    const list = document.getElementById('hosted-events-list');
+    if (!panel || !list) return;
+    if (!hostedEvents.length) {
+      panel.classList.remove('is-visible');
+      return;
+    }
+    panel.classList.add('is-visible');
+    list.innerHTML = hostedEvents.map((e) => `
+      <button type="button" class="disc-events__item${activeEventId === e.id ? ' is-active' : ''}" data-event-id="${escapeAttr(e.id)}">
+        <span class="disc-events__name">${escapeHtml(e.short_name || e.title)}</span>
+        <span class="disc-events__meta">${escapeHtml(e.event_date || '')}${e.location_name ? ' · ' + escapeHtml(e.location_name) : ''} · ${e.member_count || 0} going</span>
+      </button>
+    `).join('');
+    list.querySelectorAll('[data-event-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-event-id');
+        if (activeEventId === id) clearEventMode();
+        else enterEventMode(id);
+      });
+    });
+  }
+
+  function enterEventMode(eventId) {
+    activeEventId = eventId;
+    document.body.classList.add('fn-event-mode');
+    const panel = document.getElementById('hosted-events-panel');
+    if (panel) panel.classList.add('is-active');
+    closePanel();
+    if (markerLayer) markerLayer.clearLayers();
+    myMapMarker = null;
+    renderHostedEventsList();
+    const hint = document.getElementById('hosted-events-hint');
+    if (hint) hint.textContent = 'Showing accepted members → event directions. Tap ✕ to show people again.';
+    refreshActiveEvent();
+  }
+
+  function clearEventMode() {
+    activeEventId = null;
+    document.body.classList.remove('fn-event-mode');
+    const panel = document.getElementById('hosted-events-panel');
+    if (panel) panel.classList.remove('is-active');
+    if (eventLayer) eventLayer.clearLayers();
+    const hint = document.getElementById('hosted-events-hint');
+    if (hint) hint.textContent = 'Tap an event to show accepted members & directions';
+    renderHostedEventsList();
+    loadPeople();
+  }
+
+  function refreshActiveEvent() {
+    if (!activeEventId) return;
+    fetch('/api/events/' + encodeURIComponent(activeEventId) + '/map-members', {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    })
+      .then((r) => r.json())
+      .then((body) => {
+        if (!body.success || !body.data) return;
+        if (activeEventId !== body.data.event.id) return;
+        renderEventMap(body.data);
+      })
+      .catch(() => {});
+  }
+
+  function googleDirectionsURL(fromLat, fromLng, toLat, toLng) {
+    return 'https://www.google.com/maps/dir/?api=1'
+      + '&origin=' + encodeURIComponent(fromLat + ',' + fromLng)
+      + '&destination=' + encodeURIComponent(toLat + ',' + toLng)
+      + '&travelmode=driving';
+  }
+
+  function renderEventMap(data) {
+    if (!eventLayer) return;
+    eventLayer.clearLayers();
+    const ev = data.event;
+    const members = data.members || [];
+    const bounds = [];
+
+    const eventIcon = L.divIcon({
+      className: '',
+      html: '<div class="disc-event-pin" title="Event">📍</div>',
+      iconSize: [42, 42],
+      iconAnchor: [21, 21]
+    });
+    const eventMarker = L.marker([ev.lat, ev.lng], { icon: eventIcon, zIndexOffset: 2000 });
+    eventMarker.bindTooltip(ev.title + (ev.location_name ? ' · ' + ev.location_name : ''), {
+      direction: 'top', offset: [0, -18]
+    });
+    eventLayer.addLayer(eventMarker);
+    bounds.push([ev.lat, ev.lng]);
+
+    members.forEach((m) => {
+      const cls = 'disc-member-marker' + (m.live ? ' live' : '');
+      const icon = L.divIcon({
+        className: '',
+        html: '<div class="' + cls + '">' + escapeHtml(m.initials || '?') + '</div>',
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+      });
+      const marker = L.marker([m.lat, m.lng], { icon, zIndexOffset: 1100 });
+      const gmaps = googleDirectionsURL(m.lat, m.lng, ev.lat, ev.lng);
+      marker.bindTooltip(m.full_name + (m.live ? ' · Live' : '') + ' → ' + (ev.short_name || ev.title), {
+        direction: 'top', offset: [0, -16]
+      });
+      marker.bindPopup(
+        '<strong>' + escapeHtml(m.full_name) + '</strong><br>'
+        + '<span style="opacity:.7;font-size:12px">@' + escapeHtml(m.username) + '</span><br>'
+        + '<a href="' + gmaps + '" target="_blank" rel="noopener" style="color:#60a5fa">Open directions in Google Maps</a>'
+      );
+      eventLayer.addLayer(marker);
+
+      const line = L.polyline([[m.lat, m.lng], [ev.lat, ev.lng]], {
+        color: '#facc15',
+        weight: 3,
+        opacity: 0.85,
+        dashArray: '8 6'
+      });
+      line.on('click', () => window.open(gmaps, '_blank', 'noopener'));
+      eventLayer.addLayer(line);
+      bounds.push([m.lat, m.lng]);
+    });
+
+    if (bounds.length) {
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
     }
   }
 

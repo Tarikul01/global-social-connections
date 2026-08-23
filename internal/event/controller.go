@@ -1,6 +1,7 @@
 package event
 
 import (
+	"errors"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -379,6 +380,50 @@ func (ctrl *Controller) ToggleLiveConsent(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"ok": true})
+}
+
+// ListHostedJSON returns published events where the current user is host/co-host.
+func (ctrl *Controller) ListHostedJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	list, err := ctrl.svc.ListHosted(c.Request.Context(), u.ID)
+	if err != nil {
+		ctrl.log.Error("list hosted events failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load events"})
+		return
+	}
+	if list == nil {
+		list = []HostedEventSummary{}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+}
+
+// EventMapJSON returns event pin + accepted members with locations (host only).
+func (ctrl *Controller) EventMapJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid event"})
+		return
+	}
+	viewData, err := ctrl.svc.EventMapForHost(c.Request.Context(), eventID, u.ID)
+	if err != nil {
+		if errors.Is(err, ErrNotAuthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "forbidden"})
+			return
+		}
+		ctrl.log.Error("event map members failed", "error", err, "event_id", eventID)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load event map"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": viewData})
 }
 
 func (ctrl *Controller) SetLocationService(loc *location.Service) { ctrl.loc = loc }

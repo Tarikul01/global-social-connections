@@ -135,6 +135,8 @@ func registerWeb(r *gin.Engine, d Deps) {
 		authed.GET("/events", d.EventCtrl.List)
 		authed.GET("/events/new", d.EventCtrl.CreateForm)
 		authed.POST("/events", d.EventCtrl.Create)
+		authed.GET("/api/events/hosted", d.EventCtrl.ListHostedJSON)
+		authed.GET("/api/events/:id/map-members", d.EventCtrl.EventMapJSON)
 		authed.GET("/events/:id", d.EventCtrl.Show)
 		authed.POST("/events/:id/join", d.EventCtrl.JoinRequest)
 		authed.POST("/events/:id/invite", d.EventCtrl.Invite)

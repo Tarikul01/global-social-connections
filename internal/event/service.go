@@ -107,6 +107,36 @@ type BrowseUsersPage struct {
 	TotalPages int
 }
 
+// HostedEventSummary is a compact host-facing event card for the discover map.
+type HostedEventSummary struct {
+	ID           uuid.UUID `json:"id"`
+	Title        string    `json:"title"`
+	ShortName    string    `json:"short_name"`
+	LocationName string    `json:"location_name"`
+	Latitude     float64   `json:"lat"`
+	Longitude    float64   `json:"lng"`
+	EventDate    string    `json:"event_date"`
+	MemberCount  int       `json:"member_count"`
+}
+
+// EventMapMember is an accepted member with a map position for host routing view.
+type EventMapMember struct {
+	ID       uuid.UUID `json:"id"`
+	Username string    `json:"username"`
+	FullName string    `json:"full_name"`
+	Role     string    `json:"role"`
+	Initials string    `json:"initials"`
+	Latitude float64   `json:"lat"`
+	Longitude float64  `json:"lng"`
+	Live     bool      `json:"live"`
+}
+
+// EventMapView is host-only payload: event pin + accepted members with locations.
+type EventMapView struct {
+	Event   HostedEventSummary `json:"event"`
+	Members []EventMapMember   `json:"members"`
+}
+
 type ShowContext struct {
 	Event               Event
 	IsCreator           bool
@@ -224,6 +254,122 @@ func (r *Repository) List(ctx context.Context, limit int) ([]Event, error) {
 		list = append(list, e)
 	}
 	return list, nil
+}
+
+func shortEventName(title string) string {
+	t := strings.TrimSpace(title)
+	runes := []rune(t)
+	if len(runes) <= 22 {
+		return t
+	}
+	return string(runes[:20]) + "…"
+}
+
+func (r *Repository) ListHostedByUser(ctx context.Context, userID uuid.UUID) ([]HostedEventSummary, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT e.id, e.title, COALESCE(e.location_name,''),
+			COALESCE(ST_Y(e.geom::geometry), 0), COALESCE(ST_X(e.geom::geometry), 0),
+			to_char(e.event_date, 'Mon DD'),
+			(SELECT COUNT(*) FROM event_members em WHERE em.event_id = e.id)
+		FROM events e
+		JOIN event_members hm ON hm.event_id = e.id AND hm.user_id = $1 AND hm.role IN ('host','co_host')
+		WHERE e.status = 'published' AND e.geom IS NOT NULL
+		ORDER BY e.event_date ASC, e.created_at DESC
+		LIMIT 30
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []HostedEventSummary
+	for rows.Next() {
+		var e HostedEventSummary
+		if err := rows.Scan(&e.ID, &e.Title, &e.LocationName, &e.Latitude, &e.Longitude, &e.EventDate, &e.MemberCount); err != nil {
+			return nil, err
+		}
+		e.ShortName = shortEventName(e.Title)
+		list = append(list, e)
+	}
+	return list, nil
+}
+
+func (r *Repository) ListAcceptedMembersWithLocations(ctx context.Context, eventID uuid.UUID) ([]EventMapMember, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.username, COALESCE(p.full_name, u.username), em.role,
+			COALESCE(
+				(SELECT ll.latitude FROM live_locations ll
+				 JOIN location_settings ls ON ls.user_id = u.id
+				 WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				   AND ls.live_sharing_enabled = true
+				   AND ll.updated_at > now() - interval '5 minutes'
+				 ORDER BY ll.updated_at DESC LIMIT 1),
+				ST_Y(ul.geom::geometry)
+			),
+			COALESCE(
+				(SELECT ll.longitude FROM live_locations ll
+				 JOIN location_settings ls ON ls.user_id = u.id
+				 WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				   AND ls.live_sharing_enabled = true
+				   AND ll.updated_at > now() - interval '5 minutes'
+				 ORDER BY ll.updated_at DESC LIMIT 1),
+				ST_X(ul.geom::geometry)
+			),
+			EXISTS (
+				SELECT 1 FROM live_locations ll
+				JOIN location_settings ls ON ls.user_id = u.id
+				WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				  AND ls.live_sharing_enabled = true
+				  AND ll.updated_at > now() - interval '5 minutes'
+			) AS is_live
+		FROM event_members em
+		JOIN users u ON u.id = em.user_id
+		LEFT JOIN profiles p ON p.user_id = u.id
+		JOIN user_locations ul ON ul.user_id = u.id AND ul.geom IS NOT NULL
+		WHERE em.event_id = $1
+		  AND u.deleted_at IS NULL
+		  AND (
+			em.role IN ('member', 'co_host')
+			OR EXISTS (
+				SELECT 1 FROM event_invitations ei
+				WHERE ei.event_id = em.event_id AND ei.invitee_id = em.user_id AND ei.status = 'accepted'
+			)
+		  )
+		ORDER BY
+			CASE em.role WHEN 'co_host' THEN 0 WHEN 'member' THEN 1 ELSE 2 END,
+			COALESCE(p.full_name, u.username)
+	`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []EventMapMember
+	for rows.Next() {
+		var m EventMapMember
+		if err := rows.Scan(&m.ID, &m.Username, &m.FullName, &m.Role, &m.Latitude, &m.Longitude, &m.Live); err != nil {
+			return nil, err
+		}
+		m.Initials = memberInitials(m.FullName)
+		list = append(list, m)
+	}
+	return list, nil
+}
+
+func memberInitials(name string) string {
+	runes := []rune(strings.TrimSpace(name))
+	if len(runes) == 0 {
+		return "?"
+	}
+	out := string(runes[0])
+	for i := 1; i < len(runes)-1; i++ {
+		if runes[i] == ' ' && i+1 < len(runes) {
+			out += string(runes[i+1])
+			break
+		}
+	}
+	if len([]rune(out)) > 2 {
+		return string([]rune(out)[:2])
+	}
+	return out
 }
 
 func (r *Repository) IsHost(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
@@ -664,6 +810,40 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Event, error) {
 
 func (s *Service) List(ctx context.Context) ([]Event, error) {
 	return s.repo.List(ctx, 50)
+}
+
+func (s *Service) ListHosted(ctx context.Context, userID uuid.UUID) ([]HostedEventSummary, error) {
+	return s.repo.ListHostedByUser(ctx, userID)
+}
+
+func (s *Service) EventMapForHost(ctx context.Context, eventID, hostID uuid.UUID) (*EventMapView, error) {
+	if err := s.assertHost(ctx, eventID, hostID); err != nil {
+		return nil, err
+	}
+	e, err := s.repo.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if e.Latitude == 0 && e.Longitude == 0 {
+		return nil, ErrInvalidState
+	}
+	members, err := s.repo.ListAcceptedMembersWithLocations(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	return &EventMapView{
+		Event: HostedEventSummary{
+			ID:           e.ID,
+			Title:        e.Title,
+			ShortName:    shortEventName(e.Title),
+			LocationName: e.LocationName,
+			Latitude:     e.Latitude,
+			Longitude:    e.Longitude,
+			EventDate:    e.EventDate.Format("Jan 02"),
+			MemberCount:  e.MemberCount,
+		},
+		Members: members,
+	}, nil
 }
 
 func (s *Service) ShowContext(ctx context.Context, eventID, viewerID uuid.UUID, invPage, _ int) (*ShowContext, error) {
