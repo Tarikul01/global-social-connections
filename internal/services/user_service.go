@@ -63,7 +63,9 @@ func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*PublicUser, e
 		}
 		return nil, err
 	}
-	return toPublicUser(p), nil
+	u := toPublicUser(p)
+	u.Online = s.discovery.IsOnline(ctx, id)
+	return u, nil
 }
 
 var ErrUserNotFound = errors.New("user not found")
@@ -78,7 +80,7 @@ func toPublicUser(p *profile.Profile) *PublicUser {
 		Company:      p.Company,
 		JobTitle:     p.JobTitle,
 		Availability: p.AvailabilityStatus,
-		Online:       p.AvailabilityStatus != "" && p.AvailabilityStatus != "offline",
+		Online:       false,
 		Verified:     p.IsVerified,
 	}
 }

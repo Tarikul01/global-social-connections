@@ -10,6 +10,7 @@ import (
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/findneighbour/findneighbour/internal/security"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -119,9 +120,26 @@ func (r *Repository) GetSessionByToken(ctx context.Context, tokenHash string) (*
 	return &s, &u, nil
 }
 
-func (r *Repository) RevokeSession(ctx context.Context, tokenHash string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE sessions SET revoked_at = now() WHERE token_hash = $1`, tokenHash)
-	return err
+func (r *Repository) RevokeSession(ctx context.Context, tokenHash string) (uuid.UUID, error) {
+	var userID uuid.UUID
+	err := r.pool.QueryRow(ctx, `
+		UPDATE sessions SET revoked_at = now()
+		WHERE token_hash = $1 AND revoked_at IS NULL
+		RETURNING user_id
+	`, tokenHash).Scan(&userID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return userID, nil
+}
+
+func (r *Repository) ClearPresenceOnLogout(ctx context.Context, userID uuid.UUID) {
+	_, _ = r.pool.Exec(ctx, `
+		UPDATE location_settings
+		SET live_sharing_enabled = false, updated_at = now()
+		WHERE user_id = $1
+	`, userID)
+	_, _ = r.pool.Exec(ctx, `DELETE FROM live_locations WHERE user_id = $1`, userID)
 }
 
 func (r *Repository) IncrementFailedLogin(ctx context.Context, userID uuid.UUID) error {
@@ -235,7 +253,17 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*User, *Se
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {
-	return s.repo.RevokeSession(ctx, security.HashToken(token))
+	userID, err := s.repo.RevokeSession(ctx, security.HashToken(token))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if userID != uuid.Nil {
+		s.repo.ClearPresenceOnLogout(ctx, userID)
+	}
+	return nil
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, token string) error {

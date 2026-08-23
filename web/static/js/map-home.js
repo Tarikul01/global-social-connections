@@ -13,6 +13,11 @@
   let lastUsers = [];
   let mySavedLat = typeof cfg.myLat === 'number' ? cfg.myLat : null;
   let mySavedLng = typeof cfg.myLng === 'number' ? cfg.myLng : null;
+  let pollTimer = null;
+  let loadInFlight = false;
+  let loadQueued = false;
+  // Near-realtime updates via HTTP polling (no Redis / WebSocket).
+  const POLL_MS = Math.max(3000, Number(cfg.pollMs) || 8000);
 
   function init() {
     if (mySavedLat != null && mySavedLng != null) {
@@ -59,10 +64,37 @@
 
     // Use saved profile location only — do not ask the browser for GPS on load
     loadPeople();
+    startPolling();
 
     map.on('moveend', debounce(loadPeople, 400));
     // Clicking the map closes the side nav
     map.on('click', closeNav);
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      stopPolling();
+    } else {
+      loadPeople();
+      startPolling();
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    if (document.hidden) return;
+    pollTimer = setInterval(function () {
+      if (!document.hidden) loadPeople();
+    }, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
   }
 
   function setupSideNav() {
@@ -183,6 +215,13 @@
   window.FN_refreshLiveMarker = window.FN_applyLivePulse;
 
   function loadPeople() {
+    if (!map) return;
+    if (loadInFlight) {
+      loadQueued = true;
+      return;
+    }
+    loadInFlight = true;
+
     const c = map.getCenter();
     const zoom = map.getZoom();
     const radiusKm = zoomToRadius(zoom);
@@ -219,7 +258,14 @@
           fs.textContent = users.length + ' nearby · ' + (data.total || 0) + ' worldwide';
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        loadInFlight = false;
+        if (loadQueued) {
+          loadQueued = false;
+          loadPeople();
+        }
+      });
   }
 
   function zoomToRadius(zoom) {

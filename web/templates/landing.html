@@ -245,6 +245,7 @@
       loggedIn: {{if .LoggedIn}}true{{else}}false{{end}},
       csrf: {{if .CSRFToken}}"{{.CSRFToken}}"{{else}}""{{end}},
       liveOn: {{if .LiveOn}}true{{else}}false{{end}},
+      pollMs: 8000,
       total: {{.TotalPeople}},
       online: {{.OnlinePeople}},
       myLat: {{if .HasMyLoc}}{{printf "%.7f" .MyLat}}{{else}}null{{end}},

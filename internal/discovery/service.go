@@ -86,6 +86,12 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 				  AND ls.live_sharing_enabled = true
 				  AND ll.updated_at > now() - interval '5 minutes'
 			) AS is_live,
+			EXISTS (
+				SELECT 1 FROM sessions sess
+				WHERE sess.user_id = u.id
+				  AND sess.revoked_at IS NULL
+				  AND sess.expires_at > now()
+			) AS is_present,
 			COALESCE(f.storage_path, '') AS photo_path
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
@@ -124,10 +130,16 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		argN++
 	}
 	if f.OnlineOnly {
-		q += ` AND p.availability_status IN ('available','busy','away')`
+		q += ` AND EXISTS (
+			SELECT 1 FROM sessions sess
+			WHERE sess.user_id = u.id AND sess.revoked_at IS NULL AND sess.expires_at > now()
+		)`
 	}
 	if f.OfflineOnly {
-		q += ` AND p.availability_status = 'offline'`
+		q += ` AND NOT EXISTS (
+			SELECT 1 FROM sessions sess
+			WHERE sess.user_id = u.id AND sess.revoked_at IS NULL AND sess.expires_at > now()
+		)`
 	}
 	if f.Query != "" {
 		q += ` AND (p.full_name ILIKE $` + strconv.Itoa(argN) + ` OR u.username ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(pr.name,'') ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(ul.city,'') ILIKE $` + strconv.Itoa(argN) + `)`
@@ -147,9 +159,9 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 	var list []NearbyUser
 	for rows.Next() {
 		var u NearbyUser
-		var isLive bool
+		var isLive, isPresent bool
 		var photoPath string
-		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Profession, &u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive, &photoPath); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Profession, &u.Latitude, &u.Longitude, &u.DistanceKm, &u.Availability, &isLive, &isPresent, &photoPath); err != nil {
 			return nil, err
 		}
 		u.Live = isLive
@@ -157,7 +169,8 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		if isLive {
 			u.MarkerType = "live"
 		}
-		u.Online = u.Availability != "" && u.Availability != "offline"
+		// Online = currently logged in (active session), not profile availability preference.
+		u.Online = isPresent
 		u.Initials = initials(u.FullName)
 		u.PhotoURL = publicPhotoURL(photoPath)
 		u.DistanceKm = math.Round(u.DistanceKm*10) / 10
@@ -221,21 +234,35 @@ func (s *Service) MyMapMarker(ctx context.Context, userID uuid.UUID, viewLat, vi
 	if isLive {
 		u.MarkerType = "live"
 	}
+	// Viewer always has an active session when this is called.
 	u.Online = true
-	if u.Availability == "offline" {
-		u.Online = false
-	}
 	u.Initials = initials(u.FullName)
 	u.PhotoURL = publicPhotoURL(photoPath)
 	u.DistanceKm = math.Round(u.DistanceKm*10) / 10
 	return &u, nil
 }
 
+func (s *Service) IsOnline(ctx context.Context, userID uuid.UUID) bool {
+	var ok bool
+	_ = s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sessions
+			WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+		)
+	`, userID).Scan(&ok)
+	return ok
+}
+
 func (s *Service) CountDiscoverable(ctx context.Context) (total, online int, err error) {
 	err = s.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE true),
-			COUNT(*) FILTER (WHERE p.availability_status IN ('available','busy','away'))
+			COUNT(*) FILTER (WHERE EXISTS (
+				SELECT 1 FROM sessions sess
+				WHERE sess.user_id = u.id
+				  AND sess.revoked_at IS NULL
+				  AND sess.expires_at > now()
+			))
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
 		JOIN user_locations ul ON ul.user_id = u.id
