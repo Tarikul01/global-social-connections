@@ -187,10 +187,20 @@
     const toggle = document.getElementById('profession-filter-toggle');
     const clearBtn = document.getElementById('profession-filter-clear');
     const chipsEl = document.getElementById('profession-filter-chips');
+    const badge = document.getElementById('profession-filter-badge');
     const hasActive = selectedProfessions.size > 0;
 
     if (toggle) toggle.classList.toggle('has-active', hasActive);
     if (clearBtn) clearBtn.hidden = !hasActive;
+    if (badge) {
+      if (hasActive) {
+        badge.hidden = false;
+        badge.textContent = String(selectedProfessions.size);
+      } else {
+        badge.hidden = true;
+        badge.textContent = '';
+      }
+    }
     if (!chipsEl) return;
 
     if (!hasActive) {
@@ -227,7 +237,7 @@
     });
 
     if (!filtered.length) {
-      list.innerHTML = '<p style="padding:.75rem;font-size:.78rem;opacity:.55;text-align:center">No designations found</p>';
+      list.innerHTML = '<p style="padding:.85rem;font-size:.8rem;opacity:.55;text-align:center">No user types found</p>';
       return;
     }
 
@@ -235,7 +245,10 @@
       const checked = selectedProfessions.has(p.slug);
       return `<label class="disc-filter-option${checked ? ' is-selected' : ''}">
         <input type="checkbox" data-slug="${escapeAttr(p.slug)}"${checked ? ' checked' : ''}>
-        <span>${escapeHtml(p.name)}</span>
+        <span class="disc-filter-option__type">
+          <span class="disc-filter-option__name">${escapeHtml(p.name)}</span>
+          <span class="disc-filter-option__hint">User type</span>
+        </span>
         <span class="disc-filter-option__count">${p.count || 0}</span>
       </label>`;
     }).join('');
@@ -663,8 +676,8 @@
     const eventIcon = L.divIcon({
       className: '',
       html: '<div class="disc-event-pin" title="Event">📍</div>',
-      iconSize: [42, 42],
-      iconAnchor: [21, 21]
+      iconSize: [46, 46],
+      iconAnchor: [23, 23]
     });
     const eventMarker = L.marker([ev.lat, ev.lng], { icon: eventIcon, zIndexOffset: 2000 });
     eventMarker.bindTooltip(ev.title + (ev.location_name ? ' · ' + ev.location_name : ''), {
@@ -693,13 +706,22 @@
       );
       eventLayer.addLayer(marker);
 
-      const line = L.polyline([[m.lat, m.lng], [ev.lat, ev.lng]], {
-        color: '#facc15',
-        weight: 3,
-        opacity: 0.85,
-        dashArray: '8 6'
+      const lineGlow = L.polyline([[m.lat, m.lng], [ev.lat, ev.lng]], {
+        color: '#991b1b',
+        weight: 7,
+        opacity: 0.28,
+        lineCap: 'round'
       });
+      const line = L.polyline([[m.lat, m.lng], [ev.lat, ev.lng]], {
+        color: '#ef4444',
+        weight: 3.5,
+        opacity: 0.95,
+        dashArray: '10 7',
+        lineCap: 'round'
+      });
+      lineGlow.on('click', () => window.open(gmaps, '_blank', 'noopener'));
       line.on('click', () => window.open(gmaps, '_blank', 'noopener'));
+      eventLayer.addLayer(lineGlow);
       eventLayer.addLayer(line);
       bounds.push([m.lat, m.lng]);
     });
