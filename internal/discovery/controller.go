@@ -78,10 +78,14 @@ func (ctrl *Controller) PublicMapAPI(c *gin.Context) {
 
 	onlineOnly := c.Query("status") == "online"
 	offlineOnly := c.Query("status") == "offline"
+	professions := c.QueryArray("profession")
+	if len(professions) == 0 && c.Query("profession") != "" {
+		professions = []string{c.Query("profession")}
+	}
 
 	users, err := ctrl.svc.Nearby(c.Request.Context(), viewerID, Filters{
 		Lat: lat, Lng: lng, RadiusKm: radius,
-		Profession:  c.Query("profession"),
+		Professions: professions,
 		Query:       c.Query("q"),
 		OnlineOnly:  onlineOnly,
 		OfflineOnly: offlineOnly,
@@ -98,6 +102,16 @@ func (ctrl *Controller) PublicMapAPI(c *gin.Context) {
 		"total":  total,
 		"online": online,
 	})
+}
+
+func (ctrl *Controller) ProfessionsAPI(c *gin.Context) {
+	list, err := ctrl.svc.ListProfessions(c.Request.Context())
+	if err != nil {
+		ctrl.log.Error("list professions failed", "error", err)
+		c.JSON(500, gin.H{"error": "failed to load professions"})
+		return
+	}
+	c.JSON(200, gin.H{"professions": list})
 }
 
 func (ctrl *Controller) NearbyAPI(c *gin.Context) {

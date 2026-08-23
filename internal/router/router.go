@@ -98,6 +98,7 @@ func registerWeb(r *gin.Engine, d Deps) {
 		// Legacy browser JSON used by map JS (same service as /api/v1).
 		webGroup.GET("/api/map/people", d.UserCtrl.GetNearbyJSON)
 		webGroup.GET("/api/discover/nearby", d.UserCtrl.GetNearbyJSON)
+		webGroup.GET("/api/map/professions", d.UserCtrl.ListProfessionsJSON)
 	}
 
 	authed := webGroup.Group("/")
@@ -173,6 +174,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 		// Public discovery endpoints (optional session enriches results).
 		api.GET("/users/nearby", d.UserCtrl.GetNearbyJSON)
 		api.GET("/users/:id", d.UserCtrl.GetByIDJSON)
+		api.GET("/professions", d.UserCtrl.ListProfessionsJSON)
 
 		// Authenticated API surface (JSON 401, not HTML redirect).
 		protected := api.Group("/")

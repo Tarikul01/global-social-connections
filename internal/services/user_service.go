@@ -55,6 +55,10 @@ func (s *UserService) CountDiscoverable(ctx context.Context) (total, online int,
 	return s.discovery.CountDiscoverable(ctx)
 }
 
+func (s *UserService) ListProfessions(ctx context.Context) ([]discovery.ProfessionOption, error) {
+	return s.discovery.ListProfessions(ctx)
+}
+
 func (s *UserService) GetByID(ctx context.Context, id uuid.UUID) (*PublicUser, error) {
 	p, err := s.profiles.GetOwn(ctx, id)
 	if err != nil {

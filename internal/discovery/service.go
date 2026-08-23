@@ -34,12 +34,19 @@ type Filters struct {
 	Lng          float64
 	RadiusKm     float64
 	Profession   string
+	Professions  []string
 	Availability string
 	OnlineOnly   bool
 	OfflineOnly  bool
 	Query        string
 	Limit        int
 	Offset       int
+}
+
+type ProfessionOption struct {
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	Count int    `json:"count"`
 }
 
 type Service struct {
@@ -122,6 +129,11 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 	if f.Profession != "" {
 		q += ` AND pr.slug = $` + strconv.Itoa(argN)
 		args = append(args, f.Profession)
+		argN++
+	}
+	if len(f.Professions) > 0 {
+		q += ` AND pr.slug = ANY($` + strconv.Itoa(argN) + `)`
+		args = append(args, f.Professions)
 		argN++
 	}
 	if f.Availability != "" {
@@ -273,6 +285,36 @@ func (s *Service) CountDiscoverable(ctx context.Context) (total, online int, err
 		  AND ul.fuzzed_geom IS NOT NULL
 	`).Scan(&total, &online)
 	return
+}
+
+func (s *Service) ListProfessions(ctx context.Context) ([]ProfessionOption, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT pr.name, pr.slug, COUNT(DISTINCT u.id)::int
+		FROM professions pr
+		JOIN profiles p ON p.profession_id = pr.id
+		JOIN users u ON u.id = p.user_id
+		JOIN user_locations ul ON ul.user_id = u.id
+		JOIN location_settings ls ON ls.user_id = u.id
+		WHERE u.deleted_at IS NULL
+		  AND ls.discovery_enabled = true
+		  AND ls.sharing_mode IN ('approximate', 'discoverable')
+		  AND ul.fuzzed_geom IS NOT NULL
+		GROUP BY pr.id, pr.name, pr.slug
+		ORDER BY pr.name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []ProfessionOption
+	for rows.Next() {
+		var o ProfessionOption
+		if err := rows.Scan(&o.Name, &o.Slug, &o.Count); err != nil {
+			return nil, err
+		}
+		list = append(list, o)
+	}
+	return list, nil
 }
 
 func initials(name string) string {

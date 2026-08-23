@@ -16,6 +16,10 @@
   let pollTimer = null;
   let loadInFlight = false;
   let loadQueued = false;
+  let allProfessions = [];
+  let selectedProfessions = new Set();
+  let professionSearchQ = '';
+  let professionPanelOpen = false;
   // Near-realtime updates via HTTP polling (no Redis / WebSocket).
   const POLL_MS = Math.max(3000, Number(cfg.pollMs) || 8000);
 
@@ -45,6 +49,7 @@
     if (panelClose) panelClose.onclick = closePanel;
 
     setupSideNav();
+    setupProfessionFilter();
 
     const search = document.getElementById('search');
     if (search) {
@@ -68,9 +73,173 @@
 
     map.on('moveend', debounce(loadPeople, 400));
     // Clicking the map closes the side nav
-    map.on('click', closeNav);
+    map.on('click', () => {
+      closeNav();
+      closeProfessionPanel();
+    });
 
     document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('click', onDocumentClick);
+  }
+
+  function setupProfessionFilter() {
+    const toggle = document.getElementById('profession-filter-toggle');
+    const panel = document.getElementById('profession-filter-panel');
+    const search = document.getElementById('profession-filter-search');
+    const clearBtn = document.getElementById('profession-filter-clear');
+    if (!toggle || !panel) return;
+
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (professionPanelOpen) {
+        closeProfessionPanel();
+      } else {
+        openProfessionPanel();
+      }
+    });
+
+    if (search) {
+      search.addEventListener('input', debounce(() => {
+        professionSearchQ = search.value.trim().toLowerCase();
+        renderProfessionOptions();
+      }, 150));
+      search.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearProfessionFilters();
+      });
+    }
+
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    loadProfessions();
+  }
+
+  function loadProfessions() {
+    fetch('/api/v1/professions')
+      .then((r) => r.json())
+      .then((body) => {
+        const data = body.data || body.professions || [];
+        allProfessions = Array.isArray(data) ? data : [];
+        renderProfessionOptions();
+      })
+      .catch(() => {});
+  }
+
+  function openProfessionPanel() {
+    professionPanelOpen = true;
+    const toggle = document.getElementById('profession-filter-toggle');
+    const panel = document.getElementById('profession-filter-panel');
+    if (toggle) {
+      toggle.classList.add('is-open');
+      toggle.setAttribute('aria-expanded', 'true');
+    }
+    if (panel) panel.classList.add('is-open');
+    const search = document.getElementById('profession-filter-search');
+    if (search) search.focus();
+  }
+
+  function closeProfessionPanel() {
+    professionPanelOpen = false;
+    const toggle = document.getElementById('profession-filter-toggle');
+    const panel = document.getElementById('profession-filter-panel');
+    if (toggle) {
+      toggle.classList.remove('is-open');
+      toggle.setAttribute('aria-expanded', 'false');
+    }
+    if (panel) panel.classList.remove('is-open');
+  }
+
+  function onDocumentClick() {
+    if (professionPanelOpen) closeProfessionPanel();
+  }
+
+  function toggleProfession(slug) {
+    if (selectedProfessions.has(slug)) {
+      selectedProfessions.delete(slug);
+    } else {
+      selectedProfessions.add(slug);
+    }
+    updateProfessionUI();
+    loadPeople();
+  }
+
+  function clearProfessionFilters() {
+    selectedProfessions.clear();
+    professionSearchQ = '';
+    const search = document.getElementById('profession-filter-search');
+    if (search) search.value = '';
+    updateProfessionUI();
+    renderProfessionOptions();
+    loadPeople();
+  }
+
+  function updateProfessionUI() {
+    const toggle = document.getElementById('profession-filter-toggle');
+    const clearBtn = document.getElementById('profession-filter-clear');
+    const chipsEl = document.getElementById('profession-filter-chips');
+    const hasActive = selectedProfessions.size > 0;
+
+    if (toggle) toggle.classList.toggle('has-active', hasActive);
+    if (clearBtn) clearBtn.hidden = !hasActive;
+    if (!chipsEl) return;
+
+    if (!hasActive) {
+      chipsEl.hidden = true;
+      chipsEl.innerHTML = '';
+      return;
+    }
+
+    chipsEl.hidden = false;
+    chipsEl.innerHTML = Array.from(selectedProfessions).map((slug) => {
+      const p = allProfessions.find((x) => x.slug === slug);
+      const label = p ? p.name : slug;
+      return `<span class="disc-filter-chip">${escapeHtml(label)}<button type="button" data-slug="${escapeAttr(slug)}" aria-label="Remove ${escapeAttr(label)}">×</button></span>`;
+    }).join('');
+
+    chipsEl.querySelectorAll('button[data-slug]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedProfessions.delete(btn.getAttribute('data-slug'));
+        updateProfessionUI();
+        renderProfessionOptions();
+        loadPeople();
+      });
+    });
+  }
+
+  function renderProfessionOptions() {
+    const list = document.getElementById('profession-filter-list');
+    if (!list) return;
+
+    const filtered = allProfessions.filter((p) => {
+      if (!professionSearchQ) return true;
+      return (p.name || '').toLowerCase().includes(professionSearchQ);
+    });
+
+    if (!filtered.length) {
+      list.innerHTML = '<p style="padding:.75rem;font-size:.78rem;opacity:.55;text-align:center">No designations found</p>';
+      return;
+    }
+
+    list.innerHTML = filtered.map((p) => {
+      const checked = selectedProfessions.has(p.slug);
+      return `<label class="disc-filter-option${checked ? ' is-selected' : ''}">
+        <input type="checkbox" data-slug="${escapeAttr(p.slug)}"${checked ? ' checked' : ''}>
+        <span>${escapeHtml(p.name)}</span>
+        <span class="disc-filter-option__count">${p.count || 0}</span>
+      </label>`;
+    }).join('');
+
+    list.querySelectorAll('input[data-slug]').forEach((input) => {
+      input.addEventListener('change', (e) => {
+        e.stopPropagation();
+        toggleProfession(input.getAttribute('data-slug'));
+        renderProfessionOptions();
+      });
+    });
   }
 
   function onVisibilityChange() {
@@ -102,6 +271,7 @@
       if (e.key === 'Escape') {
         closeNav();
         closePanel();
+        closeProfessionPanel();
       }
     });
   }
@@ -232,6 +402,7 @@
     });
     if (statusFilter) params.set('status', statusFilter);
     if (searchQ) params.set('q', searchQ);
+    selectedProfessions.forEach((slug) => params.append('profession', slug));
 
     fetch('/api/v1/users/nearby?' + params.toString())
       .then((r) => r.json())
@@ -249,14 +420,7 @@
         }
         renderMarkers(users);
         renderList(users);
-        const pc = document.getElementById('people-count');
-        const oc = document.getElementById('online-count');
-        const fs = document.getElementById('footer-stats');
-        if (pc) pc.textContent = data.total || 0;
-        if (oc) oc.textContent = data.online || 0;
-        if (fs) {
-          fs.textContent = users.length + ' nearby · ' + (data.total || 0) + ' worldwide';
-        }
+        updateMapStats(data.total || 0, data.online || 0, users.length);
       })
       .catch(() => {})
       .finally(() => {
@@ -266,6 +430,19 @@
           loadPeople();
         }
       });
+  }
+
+  function updateMapStats(total, online, nearby) {
+    const mapTotal = document.getElementById('map-total-count');
+    const mapOnline = document.getElementById('map-online-count');
+    const pc = document.getElementById('people-count');
+    const oc = document.getElementById('online-count');
+    const fs = document.getElementById('footer-stats');
+    if (mapTotal) mapTotal.textContent = total;
+    if (mapOnline) mapOnline.textContent = online;
+    if (pc) pc.textContent = total;
+    if (oc) oc.textContent = online;
+    if (fs) fs.textContent = nearby + ' nearby · ' + total + ' worldwide';
   }
 
   function zoomToRadius(zoom) {

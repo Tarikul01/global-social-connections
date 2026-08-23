@@ -83,10 +83,14 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 
 	onlineOnly := c.Query("status") == "online"
 	offlineOnly := c.Query("status") == "offline"
+	professions := c.QueryArray("profession")
+	if len(professions) == 0 && c.Query("profession") != "" {
+		professions = []string{c.Query("profession")}
+	}
 
 	users, err := ctrl.users.Nearby(c.Request.Context(), viewerID, services.NearbyFilters{
 		Lat: lat, Lng: lng, RadiusKm: radius,
-		Profession:  c.Query("profession"),
+		Professions: professions,
 		Query:       c.Query("q"),
 		OnlineOnly:  onlineOnly,
 		OfflineOnly: offlineOnly,
@@ -144,4 +148,15 @@ func (ctrl *UserController) GetByIDJSON(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": user})
+}
+
+// ListProfessionsJSON serves GET /api/v1/professions — designations used on the map.
+func (ctrl *UserController) ListProfessionsJSON(c *gin.Context) {
+	list, err := ctrl.users.ListProfessions(c.Request.Context())
+	if err != nil {
+		ctrl.log.Error("list professions failed", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load professions"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
 }
