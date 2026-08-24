@@ -5,6 +5,9 @@
 
 # Environment
 .env
+.env.local
+.env.production
+.env.*.local
 
 # Go
 vendor/
