@@ -2,15 +2,26 @@
 /bin/
 /tmp/
 *.exe
+backend/bin/
+backend/server
+server
 
 # Environment
 .env
 .env.local
 .env.production
 .env.*.local
+backend/.env
+backend/.env.production
+frontend/.env
+frontend/.env.local
 
 # Go
 vendor/
+
+# Node
+frontend/node_modules/
+frontend/dist/
 
 # IDE
 .idea/
@@ -22,3 +33,4 @@ vendor/
 
 # Vercel
 .vercel
+backend/.vercel

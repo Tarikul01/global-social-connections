@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+*.md
+bin/
+tmp/
+server
+docs/
+scripts/

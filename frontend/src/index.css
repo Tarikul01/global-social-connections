@@ -1,0 +1,97 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --fn-bg: #050816;
+  --fn-bg-elevated: #0b1224;
+  --fn-surface: #111827;
+  --fn-border: rgba(148, 163, 184, 0.16);
+  --fn-text: #ffffff;
+  --fn-muted: #94a3b8;
+  --fn-yellow: #facc15;
+  --fn-blue: #3b82f6;
+  --fn-font: "DM Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--fn-bg);
+  color: var(--fn-text);
+  font-family: var(--fn-font);
+  color-scheme: dark;
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background: #0f172a;
+  font: inherit;
+}
+
+.leaflet-marker-icon.leaflet-div-icon {
+  overflow: visible !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.disc-marker {
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px rgba(5, 8, 22, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: #3b82f6;
+  overflow: visible;
+  cursor: pointer;
+  position: relative;
+}
+
+.disc-marker img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 9999px;
+}
+
+.disc-marker.online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 3px 10px rgba(5, 8, 22, 0.45);
+}
+
+.disc-marker.offline {
+  background: #64748b;
+}
+
+.disc-marker.me {
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.55), 0 3px 10px rgba(5, 8, 22, 0.45);
+}
+
+.disc-marker .dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  background: #22c55e;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.disc-marker.offline .dot {
+  background: #94a3b8;
+}

@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgis/postgis:16-3.4
+    container_name: gsc-postgres
     environment:
       POSTGRES_USER: findneighbour
       POSTGRES_PASSWORD: findneighbour
@@ -9,7 +10,45 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+      # Ordered init (skip *_standard.sql — that conflicts with PostGIS schema)
+      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./backend/migrations/003_profile_enrichment.sql:/docker-entrypoint-initdb.d/03_enrichment.sql:ro
+      - ./backend/migrations/004_profile_personal.sql:/docker-entrypoint-initdb.d/04_personal.sql:ro
+      - ./backend/migrations/006_event_invitations.sql:/docker-entrypoint-initdb.d/06_invitations.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U findneighbour -d findneighbour"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gsc-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      APP_ENV: development
+      APP_PORT: "8080"
+      APP_URL: http://localhost:8080
+      FRONTEND_URL: http://localhost:3000
+      DATABASE_URL: postgresql://findneighbour:findneighbour@postgres:5432/findneighbour?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gsc-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
 
 volumes:
   pgdata:
