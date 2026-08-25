@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/findneighbour/findneighbour/internal/config"
@@ -94,11 +95,15 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 
 func (r *Repository) CreateSession(ctx context.Context, userID uuid.UUID, tokenHash, ip, ua string, expires time.Time) (*Session, error) {
 	var s Session
+	var ipArg any
+	if ip = strings.TrimSpace(ip); ip != "" {
+		ipArg = ip
+	}
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO sessions (user_id, token_hash, ip_address, user_agent, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3::inet, $4, $5)
 		RETURNING id, user_id, token_hash, expires_at
-	`, userID, tokenHash, ip, ua, expires).Scan(&s.ID, &s.UserID, &s.TokenHash, &s.ExpiresAt)
+	`, userID, tokenHash, ipArg, ua, expires).Scan(&s.ID, &s.UserID, &s.TokenHash, &s.ExpiresAt)
 	return &s, err
 }
 

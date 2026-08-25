@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/findneighbour/findneighbour/internal/config"
 	"github.com/findneighbour/findneighbour/internal/logger"
@@ -54,11 +56,18 @@ func (ctrl *Controller) Login(c *gin.Context) {
 		Email:    c.PostForm("email"),
 		Password: c.PostForm("password"),
 	}
-	user, token, err := ctrl.svc.Login(c.Request.Context(), in, c.ClientIP(), c.Request.UserAgent())
+	user, token, err := ctrl.svc.Login(c.Request.Context(), in, clientIP(c), c.Request.UserAgent())
 	if err != nil {
+		msg := "Invalid email or password"
+		if errors.Is(err, ErrAccountLocked) {
+			msg = "Account temporarily locked. Try again later."
+		} else if !errors.Is(err, ErrInvalidCredentials) {
+			ctrl.log.Error("login failed", "error", err)
+			msg = "Login failed. Please try again."
+		}
 		ctrl.render(c, "auth/login.html", gin.H{
 			"Title": "Login",
-			"Error": "Invalid email or password",
+			"Error": msg,
 			"Next":  c.PostForm("next"),
 		})
 		return
@@ -101,7 +110,7 @@ func (ctrl *Controller) Register(c *gin.Context) {
 	ctrl.log.Info("user registered", "user_id", user.ID.String(), "verify_token", verifyToken)
 
 	// Auto-login and send to profile setup (permanent address, tags, about).
-	sessToken, err := ctrl.svc.IssueSession(c.Request.Context(), user.ID, c.ClientIP(), c.Request.UserAgent())
+	sessToken, err := ctrl.svc.IssueSession(c.Request.Context(), user.ID, clientIP(c), c.Request.UserAgent())
 	if err != nil {
 		c.Redirect(http.StatusFound, "/auth/login?registered=1")
 		return
@@ -148,4 +157,27 @@ func CurrentUserID(c *gin.Context) (uuid.UUID, bool) {
 		return uuid.Nil, false
 	}
 	return u.ID, true
+}
+
+// clientIP returns a value safe for Postgres INET (empty → omit as NULL).
+func clientIP(c *gin.Context) string {
+	candidates := []string{
+		c.ClientIP(),
+		c.GetHeader("X-Vercel-Forwarded-For"),
+		c.GetHeader("X-Real-IP"),
+		c.GetHeader("X-Forwarded-For"),
+	}
+	for _, raw := range candidates {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if i := strings.IndexByte(raw, ','); i >= 0 {
+			raw = strings.TrimSpace(raw[:i])
+		}
+		if raw != "" && raw != "::" && raw != "0.0.0.0" {
+			return raw
+		}
+	}
+	return ""
 }

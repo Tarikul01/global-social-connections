@@ -57,6 +57,8 @@ func SetupRouter(d Deps) *gin.Engine {
 	}
 
 	r := gin.New()
+	// Vercel / reverse proxies: trust X-Forwarded-For so ClientIP is populated.
+	_ = r.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"})
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Logger(d.Log))
