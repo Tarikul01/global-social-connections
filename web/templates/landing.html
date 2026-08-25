@@ -180,15 +180,34 @@
       align-items: center;
     }
     .disc-panel-head input, .disc-panel-head select {
-      background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.1);
+      background: #111827;
+      border: 1px solid rgba(148, 163, 184, 0.35);
       border-radius: 0.7rem;
-      color: #fff;
+      color: #f8fafc;
       padding: 0.45rem 0.65rem;
       font-size: 0.8rem;
+      font-weight: 600;
       outline: none;
     }
     .disc-panel-head input { flex: 1; min-width: 0; }
+    .disc-panel-head input::placeholder { color: #94a3b8; }
+    .disc-panel-head select {
+      flex-shrink: 0;
+      min-width: 6.75rem;
+      color-scheme: dark;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%94a3b8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.55rem center;
+      padding-right: 1.65rem;
+    }
+    .disc-panel-head select option {
+      background: #111827;
+      color: #f8fafc;
+      font-weight: 600;
+    }
     .disc-panel-close {
       flex-shrink: 0;
       width: 2rem;
@@ -624,19 +643,22 @@
 
   <aside class="disc-panel" id="people-panel" aria-label="People nearby">
     <div class="disc-panel-head">
-      <input id="search" type="search" placeholder="Search people...">
-      <select id="status-filter">
-        <option value="">All</option>
+      <input id="search" type="search" placeholder="{{if .LoggedIn}}Search people...{{else}}Search by username or designation...{{end}}" autocomplete="off">
+      <select id="status-filter" aria-label="Online status">
+        <option value="">All status</option>
         <option value="online">Online</option>
         <option value="offline">Offline</option>
       </select>
       <button type="button" class="disc-panel-close" id="people-panel-close" title="Close" aria-label="Close people list">✕</button>
     </div>
     <div id="people-list"></div>
-    <div style="padding:.65rem 1rem;font-size:.72rem;opacity:.65;border-top:1px solid rgba(255,255,255,.08)">
+    <div style="padding:.65rem 1rem;font-size:.72rem;color:#cbd5e1;border-top:1px solid rgba(255,255,255,.08)">
       <span id="footer-stats">{{.TotalPeople}} people worldwide</span>
       · <span id="online-count">{{.OnlinePeople}}</span> online
       · <span id="people-count" class="sr-only">{{.TotalPeople}}</span>
+      {{if not .LoggedIn}}
+      <div style="margin-top:.45rem;color:#94a3b8">Guests see avatar, username &amp; designation. <a href="/auth/login?next=/" style="color:#93c5fd;text-decoration:underline">Log in</a> for full profiles.</div>
+      {{end}}
     </div>
   </aside>
 

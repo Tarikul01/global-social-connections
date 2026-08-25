@@ -29,6 +29,18 @@ type NearbyUser struct {
 	Live         bool      `json:"live"`
 }
 
+// GuestPublicUser is the limited marker payload for visitors who are not logged in.
+// Avatar, username, and designation (profession) are visible; other profile fields stay private.
+type GuestPublicUser struct {
+	Username   string  `json:"username"`
+	Profession string  `json:"profession"`
+	Latitude   float64 `json:"lat"`
+	Longitude  float64 `json:"lng"`
+	Initials   string  `json:"initials"`
+	PhotoURL   string  `json:"photo_url,omitempty"`
+	Online     bool    `json:"online"`
+}
+
 type Filters struct {
 	Lat          float64
 	Lng          float64
@@ -154,7 +166,12 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		)`
 	}
 	if f.Query != "" {
-		q += ` AND (p.full_name ILIKE $` + strconv.Itoa(argN) + ` OR u.username ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(pr.name,'') ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(ul.city,'') ILIKE $` + strconv.Itoa(argN) + `)`
+		if viewerID == uuid.Nil {
+			// Guests may only search public fields (username + designation).
+			q += ` AND (u.username ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(pr.name,'') ILIKE $` + strconv.Itoa(argN) + `)`
+		} else {
+			q += ` AND (p.full_name ILIKE $` + strconv.Itoa(argN) + ` OR u.username ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(pr.name,'') ILIKE $` + strconv.Itoa(argN) + ` OR COALESCE(ul.city,'') ILIKE $` + strconv.Itoa(argN) + `)`
+		}
 		args = append(args, "%"+f.Query+"%")
 		argN++
 	}
@@ -331,6 +348,32 @@ func initials(name string) string {
 	}
 	if len(out) > 2 {
 		return out[:2]
+	}
+	return out
+}
+
+// ToGuestPublic strips private profile fields for unauthenticated map viewers.
+func ToGuestPublic(u NearbyUser) GuestPublicUser {
+	initialsSrc := u.Username
+	if initialsSrc == "" {
+		initialsSrc = u.Profession
+	}
+	return GuestPublicUser{
+		Username:   u.Username,
+		Profession: u.Profession,
+		Latitude:   u.Latitude,
+		Longitude:  u.Longitude,
+		Initials:   initials(initialsSrc),
+		PhotoURL:   u.PhotoURL,
+		Online:     u.Online,
+	}
+}
+
+// MapToGuestPublic converts a nearby list for public (logged-out) responses.
+func MapToGuestPublic(users []NearbyUser) []GuestPublicUser {
+	out := make([]GuestPublicUser, 0, len(users))
+	for _, u := range users {
+		out = append(out, ToGuestPublic(u))
 	}
 	return out
 }

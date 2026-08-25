@@ -489,6 +489,24 @@
     return false;
   }
 
+  function displayName(u) {
+    if (cfg.loggedIn) {
+      return u.full_name || u.username || 'Member';
+    }
+    return u.username ? '@' + u.username : 'Member';
+  }
+
+  function displayMeta(u) {
+    const profession = u.profession || 'Professional';
+    if (!cfg.loggedIn) {
+      return profession;
+    }
+    const bits = [profession];
+    if (typeof u.distance_km === 'number') bits.push(u.distance_km + ' km');
+    bits.push(u.online ? 'Online' : 'Offline');
+    return bits.join(' · ');
+  }
+
   function markerHTML(u) {
     const liveSharing = isMeLiveSharing(u);
     const cls = [
@@ -539,8 +557,12 @@
       });
       m.on('click', () => openPerson(u));
       const sharing = isMeLiveSharing(u);
-      const tip = u.full_name + (u.is_me ? ' (You)' : '') +
-        (sharing ? ' · Live sharing' : (u.live ? ' · Live' : (u.online ? ' · Online' : ' · Offline')));
+      let tip = displayName(u) + (u.is_me ? ' (You)' : '');
+      if (cfg.loggedIn) {
+        tip += sharing ? ' · Live sharing' : (u.live ? ' · Live' : (u.online ? ' · Online' : ' · Offline'));
+      } else if (u.profession) {
+        tip += ' · ' + u.profession;
+      }
       m.bindTooltip(tip, { direction: 'top', offset: [0, -18] });
       markerLayer.addLayer(m);
       if (u.is_me) myMapMarker = m;
@@ -564,8 +586,8 @@
         style="width:100%;text-align:left;display:flex;gap:.75rem;align-items:center;padding:.55rem;border-radius:.85rem;background:transparent;border:0;color:#fff;cursor:pointer">
         ${avatar}
         <span style="min-width:0;flex:1">
-          <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.full_name)}${u.is_me ? ' (You)' : ''}</span>
-          <span style="display:block;font-size:.72rem;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.profession || 'Professional')} · ${u.distance_km} km · ${u.online ? 'Online' : 'Offline'}</span>
+          <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(displayName(u))}${u.is_me ? ' (You)' : ''}</span>
+          <span style="display:block;font-size:.72rem;opacity:.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(displayMeta(u))}</span>
         </span>
       </button>`;
     }).join('');

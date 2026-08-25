@@ -96,12 +96,43 @@ func (ctrl *Controller) PublicMapAPI(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to load people"})
 		return
 	}
+
+	liveSharing := false
+	if viewerID != uuid.Nil {
+		if me, err := ctrl.svc.MyMapMarker(c.Request.Context(), viewerID, lat, lng); err == nil && me != nil {
+			liveSharing = me.Live
+			filtered := users[:0]
+			for _, u := range users {
+				if u.ID != viewerID {
+					filtered = append(filtered, u)
+				}
+			}
+			users = filtered
+			includeMe := true
+			if offlineOnly && me.Online {
+				includeMe = false
+			}
+			if onlineOnly && !me.Online {
+				includeMe = false
+			}
+			if includeMe {
+				users = append([]NearbyUser{*me}, users...)
+			}
+		}
+	}
+
 	total, online, _ := ctrl.svc.CountDiscoverable(c.Request.Context())
-	c.JSON(200, gin.H{
-		"users":  users,
+	resp := gin.H{
 		"total":  total,
 		"online": online,
-	})
+		"live":   liveSharing,
+	}
+	if viewerID == uuid.Nil {
+		resp["users"] = MapToGuestPublic(users)
+	} else {
+		resp["users"] = users
+	}
+	c.JSON(200, resp)
 }
 
 func (ctrl *Controller) ProfessionsAPI(c *gin.Context) {

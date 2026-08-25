@@ -138,6 +138,16 @@ func (r *Repository) RevokeSession(ctx context.Context, tokenHash string) (uuid.
 	return userID, nil
 }
 
+// RevokeAllUserSessions marks every active session for the user as revoked.
+// Used so "online" (any active session) clears correctly after logout/login.
+func (r *Repository) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE sessions SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`, userID)
+	return err
+}
+
 func (r *Repository) ClearPresenceOnLogout(ctx context.Context, userID uuid.UUID) {
 	_, _ = r.pool.Exec(ctx, `
 		UPDATE location_settings
@@ -218,6 +228,9 @@ func (s *Service) IssueSession(ctx context.Context, userID uuid.UUID, ip, ua str
 	if err != nil {
 		return "", err
 	}
+	// Drop prior sessions so presence (online = active session) cannot stick
+	// from an older cookie/login after a fresh login.
+	_ = s.repo.RevokeAllUserSessions(ctx, userID)
 	_, err = s.repo.CreateSession(ctx, userID, security.HashToken(token), ip, ua, time.Now().Add(s.cfg.SessionTTL))
 	if err != nil {
 		return "", err
@@ -266,6 +279,9 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 		return err
 	}
 	if userID != uuid.Nil {
+		// Revoke every session for this user so they go offline immediately
+		// (stale sessions from earlier logins would otherwise keep them online).
+		_ = s.repo.RevokeAllUserSessions(ctx, userID)
 		s.repo.ClearPresenceOnLogout(ctx, userID)
 	}
 	return nil

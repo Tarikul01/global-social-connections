@@ -8,6 +8,7 @@ import (
 
 	"github.com/findneighbour/findneighbour/internal/auth"
 	"github.com/findneighbour/findneighbour/internal/config"
+	"github.com/findneighbour/findneighbour/internal/discovery"
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/findneighbour/findneighbour/internal/services"
 	"github.com/findneighbour/findneighbour/internal/view"
@@ -102,7 +103,8 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		return
 	}
 
-	// Always include the logged-in user on the map (permanent address or live).
+	// Always include the logged-in user on the map (permanent address or live),
+	// unless a status filter would exclude them.
 	liveSharing := false
 	if viewerID != uuid.Nil {
 		if me, err := ctrl.users.MyMapMarker(c.Request.Context(), viewerID, lat, lng); err == nil && me != nil {
@@ -113,25 +115,45 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 					filtered = append(filtered, u)
 				}
 			}
-			users = append([]services.NearbyUser{*me}, filtered...)
+			users = filtered
+			includeMe := true
+			if offlineOnly && me.Online {
+				includeMe = false
+			}
+			if onlineOnly && !me.Online {
+				includeMe = false
+			}
+			if includeMe {
+				users = append([]services.NearbyUser{*me}, users...)
+			}
 		}
 	}
 
 	total, online, _ := ctrl.users.CountDiscoverable(c.Request.Context())
+	payload := gin.H{
+		"total":  total,
+		"online": online,
+		"me":     viewerID != uuid.Nil,
+		"live":   liveSharing,
+	}
+	if viewerID == uuid.Nil {
+		// Guests receive avatar, username + designation (plus map coords / online for markers).
+		payload["users"] = discovery.MapToGuestPublic(users)
+	} else {
+		payload["users"] = users
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"users":  users,
-			"total":  total,
-			"online": online,
-			"me":     viewerID != uuid.Nil,
-			"live":   liveSharing,
-		},
+		"data":    payload,
 	})
 }
 
-// GetByIDJSON serves GET /api/v1/users/:id.
+// GetByIDJSON serves GET /api/v1/users/:id (login required for full profile).
 func (ctrl *UserController) GetByIDJSON(c *gin.Context) {
+	if _, ok := auth.CurrentUser(c); !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "login required"})
+		return
+	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid user id"})
