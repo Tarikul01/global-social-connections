@@ -1,33 +1,44 @@
-# FindNeighbour / GSC
+# FindNeighbour / Global Social Connections (GSC)
 
-Monorepo with two projects + Docker Compose (Postgres):
+Location-aware professional networking: discover people on a map, see who’s online in realtime, and share live location — built as a Go API + React SPA.
+
+**Repo:** [Tarikul01/global-social-connections](https://github.com/Tarikul01/global-social-connections)
 
 ```
 GSC/
-├── backend/           # Go JSON API
-├── frontend/          # React (Vite) SPA
-├── docker-compose.yml # postgres + backend + frontend
+├── backend/            # Go JSON API + WebSocket presence
+├── frontend/           # React (Vite) + Leaflet map
+├── docker-compose.yml  # PostGIS + backend + frontend
+├── CONTRIBUTING.md
 └── README.md
 ```
+
+## Features
+
+- Map discovery (Leaflet / OpenStreetMap) with profession filters
+- Realtime nearby updates & online presence over **WebSocket** (`/api/v1/ws`)
+- Live location sharing while logged in
+- Auth (register / login / logout) with cookie sessions
+- Profile avatars: name initials by default, uploaded photo when available
 
 ## Quick start (Docker)
 
 ```bash
-# Ensure backend/.env exists (copy from example if needed)
 cp -n backend/.env.example backend/.env
+# Set APP_SECRET to a random string (32+ characters)
 
 docker compose up --build
 ```
 
-| Service   | URL                    |
-|-----------|------------------------|
-| Frontend  | http://localhost:3000  |
-| Backend   | http://localhost:8080  |
-| Postgres  | localhost:5433         |
+| Service  | URL                    |
+|----------|------------------------|
+| Frontend | http://localhost:3000  |
+| Backend  | http://localhost:8080  |
+| Postgres | localhost:5433         |
 
-Postgres credentials: `findneighbour` / `findneighbour` / db `findneighbour`.
+DB user / password / database: `findneighbour` / `findneighbour` / `findneighbour`.
 
-## Local development (without Docker apps)
+## Local development
 
 ```bash
 # 1) Database only
@@ -35,22 +46,25 @@ docker compose up -d postgres
 
 # 2) Backend
 cd backend
-# DATABASE_URL should use localhost:5433
+# DATABASE_URL → localhost:5433 (see .env.example)
 go run ./cmd/server
 
 # 3) Frontend
 cd frontend
 npm install
-npm run dev   # http://localhost:5173 (proxies /api → :8080)
+npm run dev   # http://localhost:5173 (proxies /api + WS → :8080)
 ```
 
-## Backend
+## Stack
 
-- Go + Gin + PostGIS
-- API only: `/api/v1/...`
-- See `backend/.env.example`
+| Layer    | Tech |
+|----------|------|
+| Backend  | Go, Gin, PostGIS, WebSocket |
+| Frontend | React, TypeScript, Vite, Tailwind, Leaflet |
+| Infra    | Docker Compose |
 
-## Frontend
+API is JSON-only under `/api/v1/...`. See `backend/.env.example` for configuration.
 
-- React + TypeScript + Vite + Tailwind + Leaflet
-- Talks to backend via `/api` (Vite proxy in dev, nginx in Docker)
+## Contributing
+
+Please read **[CONTRIBUTING.md](./CONTRIBUTING.md)** for setup, branch/PR expectations, and project conventions.
