@@ -176,6 +176,7 @@ export function MapPage() {
 
   useMapSocket({
     enabled: mapReady,
+    authKey: user?.id || 'guest',
     subscribe,
     onNearby: (data) => {
       setUsers(data.users || [])

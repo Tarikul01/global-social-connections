@@ -21,14 +21,19 @@ import (
 // UserController serves both Web MVC (HTML) and mobile JSON for users.
 // Both paths call the same UserService / PostGIS queries.
 type UserController struct {
-	users *services.UserService
-	cfg   *config.Config
-	log   *logger.Logger
-	tmpl  *template.Template
+	users    *services.UserService
+	cfg      *config.Config
+	log      *logger.Logger
+	tmpl     *template.Template
+	presence realtime.Presence
 }
 
 func NewUserController(users *services.UserService, cfg *config.Config, log *logger.Logger, tmpl *template.Template) *UserController {
 	return &UserController{users: users, cfg: cfg, log: log, tmpl: tmpl}
+}
+
+func (ctrl *UserController) SetPresence(p realtime.Presence) {
+	ctrl.presence = p
 }
 
 // RenderNearbyWeb serves GET /explore — HTML page / HTMX fragment from shared Nearby().
@@ -117,6 +122,7 @@ type NearbyQuery struct {
 }
 
 // NearbyPayload builds the same payload used by REST and the realtime hub.
+// Online status comes from live WebSocket presence (not stale DB sessions).
 func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUID, q NearbyQuery) (gin.H, error) {
 	onlineOnly := q.Status == "online"
 	offlineOnly := q.Status == "offline"
@@ -124,12 +130,16 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 		q.RadiusKm = 50
 	}
 
+	// When presence is available, filter online/offline in memory after overlay.
+	sqlOnlineOnly := onlineOnly && ctrl.presence == nil
+	sqlOfflineOnly := offlineOnly && ctrl.presence == nil
+
 	users, err := ctrl.users.Nearby(ctx, viewerID, services.NearbyFilters{
 		Lat: q.Lat, Lng: q.Lng, RadiusKm: q.RadiusKm,
 		Professions: q.Professions,
 		Query:       q.Query,
-		OnlineOnly:  onlineOnly,
-		OfflineOnly: offlineOnly,
+		OnlineOnly:  sqlOnlineOnly,
+		OfflineOnly: sqlOfflineOnly,
 		Limit:       100,
 	})
 	if err != nil {
@@ -147,20 +157,32 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 				}
 			}
 			users = filtered
-			includeMe := true
-			if offlineOnly && me.Online {
-				includeMe = false
-			}
-			if onlineOnly && !me.Online {
-				includeMe = false
-			}
-			if includeMe {
-				users = append([]services.NearbyUser{*me}, users...)
-			}
+			users = append([]services.NearbyUser{*me}, users...)
 		}
 	}
 
-	total, online, _ := ctrl.users.CountDiscoverable(ctx)
+	// Overlay realtime presence (WebSocket connections).
+	if ctrl.presence != nil {
+		out := users[:0]
+		for _, u := range users {
+			u.Online = ctrl.presence.IsOnline(u.ID)
+			if onlineOnly && !u.Online {
+				continue
+			}
+			if offlineOnly && u.Online {
+				continue
+			}
+			out = append(out, u)
+		}
+		users = out
+	}
+
+	total, sessionOnline, _ := ctrl.users.CountDiscoverable(ctx)
+	online := sessionOnline
+	if ctrl.presence != nil {
+		online = ctrl.presence.OnlineCount()
+	}
+
 	payload := gin.H{
 		"total":  total,
 		"online": online,
@@ -224,6 +246,9 @@ func (ctrl *UserController) StatsJSON(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load stats"})
 		return
+	}
+	if ctrl.presence != nil {
+		online = ctrl.presence.OnlineCount()
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

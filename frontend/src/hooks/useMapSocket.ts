@@ -19,6 +19,8 @@ type NearbyPayload = {
 
 type Options = {
   enabled: boolean
+  /** Reconnect socket when auth identity changes (login/logout). */
+  authKey?: string
   subscribe: MapSubscribe | null
   onNearby: (data: NearbyPayload) => void
   onStatus?: (connected: boolean) => void
@@ -42,7 +44,7 @@ function wsURL() {
  * Server pushes `nearby` snapshots on subscribe and when the map changes
  * (live location / login / logout).
  */
-export function useMapSocket({ enabled, subscribe, onNearby, onStatus }: Options) {
+export function useMapSocket({ enabled, authKey = '', subscribe, onNearby, onStatus }: Options) {
   const onNearbyRef = useRef(onNearby)
   const onStatusRef = useRef(onStatus)
   onNearbyRef.current = onNearby
@@ -137,8 +139,8 @@ export function useMapSocket({ enabled, subscribe, onNearby, onStatus }: Options
       if (pingTimer) window.clearInterval(pingTimer)
       ws?.close()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- subKey captures subscribe fields
-  }, [enabled, subKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- subKey + authKey drive reconnect
+  }, [enabled, subKey, authKey])
 }
 
 function round(n: number) {

@@ -30,6 +30,13 @@ type NearbyProvider interface {
 	NearbySnapshot(viewerID uuid.UUID, sub SubscribeData) (any, error)
 }
 
+// Presence reports who is currently connected to the map (realtime online).
+type Presence interface {
+	IsOnline(userID uuid.UUID) bool
+	OnlineCount() int
+	OnlineIDs() []uuid.UUID
+}
+
 // Client is one browser WebSocket connection.
 type Client struct {
 	hub      *Hub
@@ -40,10 +47,11 @@ type Client struct {
 	sub      *SubscribeData
 }
 
-// Hub tracks live map clients and fans out map-change events.
+// Hub tracks live map clients, authenticated presence, and map pushes.
 type Hub struct {
 	mu         sync.RWMutex
 	clients    map[*Client]struct{}
+	presence   map[uuid.UUID]int // ref-count tabs/devices per user
 	register   chan *Client
 	unregister chan *Client
 	provider   NearbyProvider
@@ -52,6 +60,7 @@ type Hub struct {
 func NewHub(provider NearbyProvider) *Hub {
 	return &Hub{
 		clients:    make(map[*Client]struct{}),
+		presence:   make(map[uuid.UUID]int),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		provider:   provider,
@@ -62,19 +71,66 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case c := <-h.register:
+			changed := false
 			h.mu.Lock()
 			h.clients[c] = struct{}{}
+			if c.viewerID != uuid.Nil {
+				h.presence[c.viewerID]++
+				if h.presence[c.viewerID] == 1 {
+					changed = true
+				}
+			}
 			h.mu.Unlock()
+			if changed {
+				h.BroadcastMapChanged()
+			}
 
 		case c := <-h.unregister:
+			changed := false
 			h.mu.Lock()
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
 				close(c.send)
 			}
+			if c.viewerID != uuid.Nil {
+				if n := h.presence[c.viewerID]; n <= 1 {
+					delete(h.presence, c.viewerID)
+					changed = true
+				} else {
+					h.presence[c.viewerID] = n - 1
+				}
+			}
 			h.mu.Unlock()
+			if changed {
+				h.BroadcastMapChanged()
+			}
 		}
 	}
+}
+
+func (h *Hub) IsOnline(userID uuid.UUID) bool {
+	if userID == uuid.Nil {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.presence[userID] > 0
+}
+
+func (h *Hub) OnlineCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.presence)
+}
+
+func (h *Hub) OnlineIDs() []uuid.UUID {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]uuid.UUID, 0, len(h.presence))
+	for id := range h.presence {
+		out = append(out, id)
+	}
+	return out
 }
 
 // BroadcastMapChanged re-pushes nearby snapshots to every subscribed client.
