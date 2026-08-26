@@ -8,15 +8,24 @@ import { api, type NearbyUser, type Profession } from '../lib/api'
 import { SideNav } from '../components/SideNav'
 import { Recenter } from '../components/Recenter'
 import { useMapSocket } from '../hooks/useMapSocket'
+import { UserAvatar } from '../components/UserAvatar'
+import { userShortform } from '../lib/avatar'
 
 function markerIcon(u: NearbyUser, loggedIn: boolean) {
   const status = u.online ? 'online' : 'offline'
   const me = u.is_me ? ' me' : ''
-  const label = loggedIn && u.full_name ? u.full_name : u.username ? `@${u.username}` : '?'
-  const inner = u.photo_url
-    ? `<img src="${escapeAttr(u.photo_url)}" alt="">`
-    : escapeHtml(u.initials || initialsFrom(label))
-  const html = `<div class="disc-marker ${status}${me}">${inner}<span class="dot"></span></div>`
+  const short = escapeHtml(
+    userShortform({
+      initials: u.initials,
+      full_name: loggedIn ? u.full_name : undefined,
+      username: u.username,
+    }),
+  )
+  // Always render shortform; photo sits on top and hides itself if it fails to load.
+  const img = u.photo_url
+    ? `<img src="${escapeAttr(u.photo_url)}" alt="" onerror="this.style.display='none'">`
+    : ''
+  const html = `<div class="disc-marker ${status}${me}"><span class="disc-initials">${short}</span>${img}<span class="dot"></span></div>`
   return L.divIcon({
     className: '',
     html,
@@ -35,13 +44,6 @@ function escapeHtml(s: string) {
 
 function escapeAttr(s: string) {
   return escapeHtml(s).replace(/'/g, '&#39;')
-}
-
-function initialsFrom(name: string) {
-  const parts = name.replace('@', '').trim().split(/\s+/)
-  if (!parts[0]) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
 function zoomToRadius(zoom: number) {
@@ -508,17 +510,13 @@ export function MapPage() {
                 onClick={() => openPerson(u)}
                 className="mb-1 flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5"
               >
-                <div
-                  className={`disc-marker ${u.online ? 'online' : 'offline'}`}
-                  style={{ width: 36, height: 36, fontSize: 11, flexShrink: 0 }}
-                >
-                  {u.photo_url ? (
-                    <img src={u.photo_url} alt="" />
-                  ) : (
-                    u.initials || '?'
-                  )}
-                  <span className="dot" />
-                </div>
+                <UserAvatar
+                  name={loggedIn && u.full_name ? u.full_name : u.username}
+                  initials={u.initials}
+                  photoUrl={u.photo_url}
+                  online={u.online}
+                  size={36}
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">
                     {displayName(u)}

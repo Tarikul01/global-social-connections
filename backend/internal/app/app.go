@@ -129,6 +129,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		NotifSvc:    notifSvc,
 		SocialCtrl:  socialCtrl,
 		WSHandler:   wsHandler,
+		StorageSvc:  storageSvc,
 	})
 
 	return &App{Config: cfg, DB: db, Log: log, Router: r, Tmpl: tmpl}, nil

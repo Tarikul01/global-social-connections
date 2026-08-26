@@ -20,6 +20,7 @@ import (
 	"github.com/findneighbour/findneighbour/internal/profile"
 	"github.com/findneighbour/findneighbour/internal/realtime"
 	"github.com/findneighbour/findneighbour/internal/social"
+	"github.com/findneighbour/findneighbour/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -47,6 +48,7 @@ type Deps struct {
 	NotifSvc    *notification.Service
 	SocialCtrl  *social.Controller
 	WSHandler   *realtime.Handler
+	StorageSvc  *storage.Service
 }
 
 // SetupRouter builds a Gin engine that serves JSON REST only under /api/v1.
@@ -110,6 +112,9 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 		api.GET("/users/:id", d.UserCtrl.GetByIDJSON)
 		api.GET("/professions", d.UserCtrl.ListProfessionsJSON)
 		api.GET("/stats", d.UserCtrl.StatsJSON)
+		if d.StorageSvc != nil {
+			api.GET("/media/*filepath", d.StorageSvc.ServeMedia)
+		}
 
 		// Realtime map (WebSocket) — replaces HTTP long-polling
 		if d.WSHandler != nil {
@@ -123,6 +128,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 		{
 			protected.GET("/me", d.AuthCtrl.MeJSON)
 			protected.GET("/me/profile", d.ProfileCtrl.MeProfileJSON)
+			protected.POST("/me/photo", d.ProfileCtrl.UploadPhotoJSON)
 			protected.GET("/profiles/:username", d.ProfileCtrl.PublicProfileJSON)
 
 			protected.POST("/live-location", d.LocCtrl.UpdateLiveLocation)

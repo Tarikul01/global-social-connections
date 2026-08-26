@@ -6,10 +6,10 @@ import {
   LogOut,
   Map,
   MessageCircle,
-  User,
   X,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
+import { UserAvatar } from './UserAvatar'
 
 type Props = {
   open: boolean
@@ -75,7 +75,8 @@ export function SideNav({ open, onClose }: Props) {
                 <Bell size={18} /> Notifications
               </NavLink>
               <NavLink to="/profile" className={linkClass} onClick={onClose}>
-                <User size={18} /> @{user.username}
+                <UserAvatar name={user.username} size={22} fontSize={9} online showDot={false} className="!border-2" />
+                @{user.username}
               </NavLink>
               <button
                 type="button"

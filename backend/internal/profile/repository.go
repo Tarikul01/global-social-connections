@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,21 +27,24 @@ func (r *PgRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Prof
 	var p Profile
 	var profName *string
 	var birthday *time.Time
+	var photoPath string
 	err := r.pool.QueryRow(ctx, `
 		SELECT p.id, p.user_id, p.full_name, COALESCE(p.bio,''), COALESCE(p.about,''),
 			COALESCE(p.company,''), COALESCE(p.job_title,''), p.experience_years, p.profession_id,
 			pr.name, p.availability_status, p.looking_for, p.is_verified, p.onboarding_completed,
 			u.username, u.email,
 			COALESCE(p.pitch_url,''), COALESCE(p.personal_quote,''), COALESCE(p.profile_views_count,0),
-			COALESCE(p.gender,''), p.birthday
+			COALESCE(p.gender,''), p.birthday,
+			COALESCE(f.storage_path, '')
 		FROM profiles p
 		JOIN users u ON u.id = p.user_id
 		LEFT JOIN professions pr ON pr.id = p.profession_id
+		LEFT JOIN files f ON f.id = p.profile_photo_file_id
 		WHERE p.user_id = $1 AND u.deleted_at IS NULL
 	`, userID).Scan(&p.ID, &p.UserID, &p.FullName, &p.Bio, &p.About, &p.Company, &p.JobTitle,
 		&p.ExperienceYears, &p.ProfessionID, &profName, &p.AvailabilityStatus, &p.LookingFor,
 		&p.IsVerified, &p.OnboardingCompleted, &p.Username, &p.Email,
-		&p.PitchURL, &p.PersonalQuote, &p.ProfileViews, &p.Gender, &birthday)
+		&p.PitchURL, &p.PersonalQuote, &p.ProfileViews, &p.Gender, &birthday, &photoPath)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +55,7 @@ func (r *PgRepository) GetByUserID(ctx context.Context, userID uuid.UUID) (*Prof
 	if birthday != nil {
 		p.BirthdayDisplay = birthday.Format("January 2, 2006")
 	}
+	p.ProfilePhotoURL = localMediaURL(photoPath)
 	return &p, nil
 }
 
@@ -429,4 +435,19 @@ func MaskEmail(email string) string {
 		return local + "***" + domain
 	}
 	return string(local[0]) + "***" + domain
+}
+
+func localMediaURL(storagePath string) string {
+	if storagePath == "" {
+		return ""
+	}
+	path := strings.TrimPrefix(storagePath, "/")
+	root := "data/uploads"
+	if v := os.Getenv("UPLOAD_DIR"); v != "" {
+		root = v
+	}
+	if _, err := os.Stat(filepath.Join(root, path)); err == nil {
+		return "/api/v1/media/" + path
+	}
+	return ""
 }

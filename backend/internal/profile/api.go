@@ -51,12 +51,41 @@ func (ctrl *Controller) MeProfileJSON(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
-// PublicProfileJSON serves GET /api/v1/users/by-username/:username
+// PublicProfileJSON serves GET /api/v1/profiles/:username
 func (ctrl *Controller) PublicProfileJSON(c *gin.Context) {
 	username := c.Param("username")
 	p, err := ctrl.svc.GetPublic(c.Request.Context(), username)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "user not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": profileJSON(p)})
+}
+
+// UploadPhotoJSON serves POST /api/v1/me/photo (multipart field "photo").
+func (ctrl *Controller) UploadPhotoJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "authentication required"})
+		return
+	}
+	file, err := c.FormFile("photo")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "photo file required"})
+		return
+	}
+	fileID, err := ctrl.storage.UploadProfilePhoto(c.Request.Context(), u.ID, file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if err := ctrl.svc.SetProfilePhoto(c.Request.Context(), u.ID, fileID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to save photo"})
+		return
+	}
+	p, err := ctrl.svc.GetOwn(c.Request.Context(), u.ID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"photo_url": ""}})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": profileJSON(p)})

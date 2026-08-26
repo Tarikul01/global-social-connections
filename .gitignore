@@ -34,3 +34,6 @@ frontend/dist/
 # Vercel
 .vercel
 backend/.vercel
+
+# Local uploads
+backend/data/uploads/

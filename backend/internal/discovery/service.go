@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -200,7 +201,7 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		}
 		// Online = currently logged in (active session), not profile availability preference.
 		u.Online = isPresent
-		u.Initials = initials(u.FullName)
+		u.Initials = initialsForUser(u.FullName, u.Username)
 		u.PhotoURL = publicPhotoURL(photoPath)
 		u.DistanceKm = math.Round(u.DistanceKm*10) / 10
 		list = append(list, u)
@@ -265,7 +266,7 @@ func (s *Service) MyMapMarker(ctx context.Context, userID uuid.UUID, viewLat, vi
 	}
 	// Viewer always has an active session when this is called.
 	u.Online = true
-	u.Initials = initials(u.FullName)
+	u.Initials = initialsForUser(u.FullName, u.Username)
 	u.PhotoURL = publicPhotoURL(photoPath)
 	u.DistanceKm = math.Round(u.DistanceKm*10) / 10
 	return &u, nil
@@ -335,35 +336,42 @@ func (s *Service) ListProfessions(ctx context.Context) ([]ProfessionOption, erro
 }
 
 func initials(name string) string {
-	runes := []rune(name)
-	if len(runes) == 0 {
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return "?"
 	}
-	out := string(runes[0])
-	for i := 1; i < len(runes)-1; i++ {
-		if runes[i] == ' ' && i+1 < len(runes) {
-			out += string(runes[i+1])
-			break
+	replacer := strings.NewReplacer("_", " ", "-", " ", ".", " ", "@", " ")
+	parts := strings.Fields(replacer.Replace(name))
+	if len(parts) == 0 {
+		return "?"
+	}
+	if len(parts) == 1 {
+		runes := []rune(parts[0])
+		if len(runes) >= 2 {
+			return strings.ToUpper(string(runes[0:2]))
 		}
+		return strings.ToUpper(string(runes[0]))
 	}
-	if len(out) > 2 {
-		return out[:2]
+	a := []rune(parts[0])
+	b := []rune(parts[1])
+	return strings.ToUpper(string(a[0]) + string(b[0]))
+}
+
+func initialsForUser(fullName, username string) string {
+	if strings.TrimSpace(fullName) != "" {
+		return initials(fullName)
 	}
-	return out
+	return initials(username)
 }
 
 // ToGuestPublic strips private profile fields for unauthenticated map viewers.
 func ToGuestPublic(u NearbyUser) GuestPublicUser {
-	initialsSrc := u.Username
-	if initialsSrc == "" {
-		initialsSrc = u.Profession
-	}
 	return GuestPublicUser{
 		Username:   u.Username,
 		Profession: u.Profession,
 		Latitude:   u.Latitude,
 		Longitude:  u.Longitude,
-		Initials:   initials(initialsSrc),
+		Initials:   initialsForUser(u.FullName, u.Username),
 		PhotoURL:   u.PhotoURL,
 		Online:     u.Online,
 	}
@@ -382,10 +390,17 @@ func publicPhotoURL(storagePath string) string {
 	if storagePath == "" {
 		return ""
 	}
-	base := strings.TrimRight(os.Getenv("SUPABASE_URL"), "/")
-	if base == "" {
-		return ""
+	path := strings.TrimPrefix(storagePath, "/")
+	if _, err := os.Stat(filepath.Join(uploadRoot(), path)); err == nil {
+		return "/api/v1/media/" + path
 	}
-	path := strings.TrimPrefix(storagePath, "avatars/")
-	return base + "/storage/v1/object/public/avatars/" + path
+	// Prefer local files only — broken remote URLs used to blank out map avatars.
+	return ""
+}
+
+func uploadRoot() string {
+	if v := os.Getenv("UPLOAD_DIR"); v != "" {
+		return v
+	}
+	return "data/uploads"
 }
