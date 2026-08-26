@@ -17,6 +17,7 @@ import (
 	"github.com/findneighbour/findneighbour/internal/logger"
 	"github.com/findneighbour/findneighbour/internal/notification"
 	"github.com/findneighbour/findneighbour/internal/profile"
+	"github.com/findneighbour/findneighbour/internal/realtime"
 	"github.com/findneighbour/findneighbour/internal/router"
 	"github.com/findneighbour/findneighbour/internal/security"
 	"github.com/findneighbour/findneighbour/internal/services"
@@ -100,6 +101,13 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	notifCtrl.SetInviteStatusChecker(eventSvc.InvitationStatus)
 	socialCtrl := social.NewController(socialSvc, authSvc, log, tmpl)
 
+	hub := realtime.NewHub(userCtrl)
+	go hub.Run()
+	wsHandler := realtime.NewHandler(hub)
+	mapBus := realtime.NewDebouncedBroadcaster(hub)
+	locCtrl.SetBroadcaster(mapBus)
+	authCtrl.SetBroadcaster(mapBus)
+
 	r := router.SetupRouter(router.Deps{
 		Config:      cfg,
 		DB:          db,
@@ -119,6 +127,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 		NotifCtrl:   notifCtrl,
 		NotifSvc:    notifSvc,
 		SocialCtrl:  socialCtrl,
+		WSHandler:   wsHandler,
 	})
 
 	return &App{Config: cfg, DB: db, Log: log, Router: r, Tmpl: tmpl}, nil

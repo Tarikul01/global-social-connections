@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"html/template"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/findneighbour/findneighbour/internal/config"
 	"github.com/findneighbour/findneighbour/internal/discovery"
 	"github.com/findneighbour/findneighbour/internal/logger"
+	"github.com/findneighbour/findneighbour/internal/realtime"
 	"github.com/findneighbour/findneighbour/internal/services"
 	"github.com/findneighbour/findneighbour/internal/view"
 	"github.com/gin-gonic/gin"
@@ -82,32 +84,61 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		viewerID = u.ID
 	}
 
-	onlineOnly := c.Query("status") == "online"
-	offlineOnly := c.Query("status") == "offline"
 	professions := c.QueryArray("profession")
 	if len(professions) == 0 && c.Query("profession") != "" {
 		professions = []string{c.Query("profession")}
 	}
 
-	users, err := ctrl.users.Nearby(c.Request.Context(), viewerID, services.NearbyFilters{
+	payload, err := ctrl.NearbyPayload(c.Request.Context(), viewerID, NearbyQuery{
 		Lat: lat, Lng: lng, RadiusKm: radius,
-		Professions: professions,
+		Status:      c.Query("status"),
 		Query:       c.Query("q"),
-		OnlineOnly:  onlineOnly,
-		OfflineOnly: offlineOnly,
-		Limit:       100,
+		Professions: professions,
 	})
 	if err != nil {
 		ctrl.log.Error("nearby api query failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load nearby users"})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    payload,
+	})
+}
 
-	// Always include the logged-in user on the map (permanent address or live),
-	// unless a status filter would exclude them.
+// NearbyQuery is the shared filter set for HTTP + WebSocket nearby snapshots.
+type NearbyQuery struct {
+	Lat         float64
+	Lng         float64
+	RadiusKm    float64
+	Status      string
+	Query       string
+	Professions []string
+}
+
+// NearbyPayload builds the same payload used by REST and the realtime hub.
+func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUID, q NearbyQuery) (gin.H, error) {
+	onlineOnly := q.Status == "online"
+	offlineOnly := q.Status == "offline"
+	if q.RadiusKm <= 0 {
+		q.RadiusKm = 50
+	}
+
+	users, err := ctrl.users.Nearby(ctx, viewerID, services.NearbyFilters{
+		Lat: q.Lat, Lng: q.Lng, RadiusKm: q.RadiusKm,
+		Professions: q.Professions,
+		Query:       q.Query,
+		OnlineOnly:  onlineOnly,
+		OfflineOnly: offlineOnly,
+		Limit:       100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	liveSharing := false
 	if viewerID != uuid.Nil {
-		if me, err := ctrl.users.MyMapMarker(c.Request.Context(), viewerID, lat, lng); err == nil && me != nil {
+		if me, err := ctrl.users.MyMapMarker(ctx, viewerID, q.Lat, q.Lng); err == nil && me != nil {
 			liveSharing = me.Live
 			filtered := users[:0]
 			for _, u := range users {
@@ -129,7 +160,7 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		}
 	}
 
-	total, online, _ := ctrl.users.CountDiscoverable(c.Request.Context())
+	total, online, _ := ctrl.users.CountDiscoverable(ctx)
 	payload := gin.H{
 		"total":  total,
 		"online": online,
@@ -137,14 +168,18 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		"live":   liveSharing,
 	}
 	if viewerID == uuid.Nil {
-		// Guests receive avatar, username + designation (plus map coords / online for markers).
 		payload["users"] = discovery.MapToGuestPublic(users)
 	} else {
 		payload["users"] = users
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    payload,
+	return payload, nil
+}
+
+// NearbySnapshot implements realtime.NearbyProvider for the WebSocket hub.
+func (ctrl *UserController) NearbySnapshot(viewerID uuid.UUID, sub realtime.SubscribeData) (any, error) {
+	return ctrl.NearbyPayload(context.Background(), viewerID, NearbyQuery{
+		Lat: sub.Lat, Lng: sub.Lng, RadiusKm: sub.RadiusKm,
+		Status: sub.Status, Query: sub.Query, Professions: sub.Professions,
 	})
 }
 

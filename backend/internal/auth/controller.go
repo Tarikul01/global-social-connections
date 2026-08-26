@@ -15,14 +15,30 @@ import (
 )
 
 type Controller struct {
-	svc   *Service
-	cfg   *config.Config
-	log   *logger.Logger
-	tmpl  *template.Template
+	svc  *Service
+	cfg  *config.Config
+	log  *logger.Logger
+	tmpl *template.Template
+	bus  MapBroadcaster
+}
+
+// MapBroadcaster pushes online/offline presence changes to map sockets.
+type MapBroadcaster interface {
+	BroadcastMapChanged()
 }
 
 func NewController(svc *Service, cfg *config.Config, log *logger.Logger, tmpl *template.Template) *Controller {
 	return &Controller{svc: svc, cfg: cfg, log: log, tmpl: tmpl}
+}
+
+func (ctrl *Controller) SetBroadcaster(bus MapBroadcaster) {
+	ctrl.bus = bus
+}
+
+func (ctrl *Controller) notifyMap() {
+	if ctrl.bus != nil {
+		ctrl.bus.BroadcastMapChanged()
+	}
 }
 
 func (ctrl *Controller) render(c *gin.Context, name string, data gin.H) {

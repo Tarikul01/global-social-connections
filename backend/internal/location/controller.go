@@ -14,11 +14,17 @@ import (
 )
 
 type Controller struct {
-	svc  *Service
-	auth *auth.Service
-	cfg  *config.Config
-	log  *logger.Logger
-	tmpl *template.Template
+	svc   *Service
+	auth  *auth.Service
+	cfg   *config.Config
+	log   *logger.Logger
+	tmpl  *template.Template
+	bus   MapBroadcaster
+}
+
+// MapBroadcaster notifies live map clients that nearby data changed.
+type MapBroadcaster interface {
+	BroadcastMapChanged()
 }
 
 func NewController(svc *Service, auth *auth.Service, log *logger.Logger, tmpl *template.Template) *Controller {
@@ -27,6 +33,16 @@ func NewController(svc *Service, auth *auth.Service, log *logger.Logger, tmpl *t
 
 func NewControllerWithConfig(svc *Service, auth *auth.Service, cfg *config.Config, log *logger.Logger, tmpl *template.Template) *Controller {
 	return &Controller{svc: svc, auth: auth, cfg: cfg, log: log, tmpl: tmpl}
+}
+
+func (ctrl *Controller) SetBroadcaster(bus MapBroadcaster) {
+	ctrl.bus = bus
+}
+
+func (ctrl *Controller) notifyMap() {
+	if ctrl.bus != nil {
+		ctrl.bus.BroadcastMapChanged()
+	}
 }
 
 func (ctrl *Controller) SettingsForm(c *gin.Context) {
@@ -94,6 +110,7 @@ func (ctrl *Controller) UpdateLiveLocation(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to update live location"})
 		return
 	}
+	ctrl.notifyMap()
 	c.JSON(200, gin.H{"ok": true, "live": true})
 }
 
@@ -111,6 +128,7 @@ func (ctrl *Controller) StartLiveLocation(c *gin.Context) {
 	if lat != 0 || lng != 0 {
 		_ = ctrl.svc.UpdateLiveLocation(c.Request.Context(), u.ID, nil, lat, lng)
 	}
+	ctrl.notifyMap()
 	c.JSON(200, gin.H{"ok": true, "live": true})
 }
 
@@ -158,5 +176,6 @@ func (ctrl *Controller) StopLiveLocation(c *gin.Context) {
 		eventID = &id
 	}
 	_ = ctrl.svc.StopLiveLocation(c.Request.Context(), u.ID, eventID)
+	ctrl.notifyMap()
 	c.JSON(200, gin.H{"ok": true, "live": false})
 }

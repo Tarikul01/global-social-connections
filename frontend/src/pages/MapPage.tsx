@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { Filter, LocateFixed, Menu, Minus, Plus, Users, X } from 'lucide-react'
+import { Filter, LocateFixed, MapPin, Menu, Minus, Plus, Radio, Users, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { api, type NearbyUser, type Profession } from '../lib/api'
 import { SideNav } from '../components/SideNav'
 import { Recenter } from '../components/Recenter'
+import { useMapSocket } from '../hooks/useMapSocket'
 
 function markerIcon(u: NearbyUser, loggedIn: boolean) {
   const status = u.online ? 'online' : 'offline'
@@ -65,12 +66,25 @@ function MapEvents({ onMove }: { onMove: (lat: number, lng: number, zoom: number
 
 function MapControls({
   onLocate,
+  loggedIn,
+  liveOn,
+  liveBusy,
+  onToggleLive,
+  panelOpen,
+  onTogglePanel,
 }: {
   onLocate: () => void
+  loggedIn: boolean
+  liveOn: boolean
+  liveBusy: boolean
+  onToggleLive: () => void
+  panelOpen: boolean
+  onTogglePanel: () => void
 }) {
   const map = useMap()
+  const right = panelOpen ? 'right-[min(100%,22rem)] mr-3' : 'right-3'
   return (
-    <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-2">
+    <div className={`absolute top-3 z-[1000] flex flex-col gap-2 ${right}`}>
       <button
         type="button"
         className="flex h-10 w-10 items-center justify-center rounded-full bg-[#0b1224] text-white shadow-lg ring-1 ring-white/15"
@@ -91,9 +105,36 @@ function MapControls({
         type="button"
         className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg"
         onClick={onLocate}
-        title="My location"
+        title="Go to my saved location"
       >
         <LocateFixed size={18} />
+      </button>
+      {loggedIn && (
+        <button
+          type="button"
+          disabled={liveBusy}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg ring-1 disabled:opacity-60 ${
+            liveOn
+              ? 'bg-red-500 ring-red-300/40 animate-pulse'
+              : 'bg-yellow-500 ring-yellow-300/30 text-slate-900'
+          }`}
+          onClick={onToggleLive}
+          title={liveOn ? 'Stop sharing live location' : 'Share my live location'}
+          aria-pressed={liveOn}
+        >
+          {liveOn ? <Radio size={18} /> : <MapPin size={18} />}
+        </button>
+      )}
+      <button
+        type="button"
+        className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg ring-1 ${
+          panelOpen ? 'bg-blue-600 ring-blue-400/40' : 'bg-[#0b1224] ring-white/15'
+        }`}
+        onClick={onTogglePanel}
+        title={panelOpen ? 'Hide people' : 'Show people nearby'}
+        aria-pressed={panelOpen}
+      >
+        <Users size={18} />
       </button>
     </div>
   )
@@ -104,7 +145,7 @@ export function MapPage() {
   const navigate = useNavigate()
   const loggedIn = !!user
   const [navOpen, setNavOpen] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [users, setUsers] = useState<NearbyUser[]>([])
   const [total, setTotal] = useState(0)
   const [online, setOnline] = useState(0)
@@ -117,35 +158,32 @@ export function MapPage() {
   const [zoom, setZoom] = useState(12)
   const [viewTick, setViewTick] = useState(0)
   const [mapReady, setMapReady] = useState(false)
+  const [socketOk, setSocketOk] = useState(false)
+  const [liveOn, setLiveOn] = useState(false)
+  const [liveBusy, setLiveBusy] = useState(false)
+  const watchIdRef = useRef<number | null>(null)
 
-  const loadPeople = useCallback(
-    async (lat: number, lng: number, z: number) => {
-      const params = new URLSearchParams({
-        lat: String(lat),
-        lng: String(lng),
-        radius_km: String(zoomToRadius(z)),
-      })
-      if (search.trim()) params.set('q', search.trim())
-      if (status) params.set('status', status)
-      selectedProfessions.forEach((slug) => params.append('profession', slug))
-      try {
-        const res = await api.get<{
-          success?: boolean
-          data?: { users: NearbyUser[]; total: number; online: number }
-          users?: NearbyUser[]
-          total?: number
-          online?: number
-        }>(`/api/v1/users/nearby?${params}`)
-        const data = res.data || res
-        setUsers(data.users || [])
-        setTotal(data.total || 0)
-        setOnline(data.online || 0)
-      } catch {
-        /* keep previous */
+  const subscribe = mapReady
+    ? {
+        lat: center[0],
+        lng: center[1],
+        radius_km: zoomToRadius(zoom),
+        status,
+        q: search.trim(),
+        professions: selectedProfessions,
       }
+    : null
+
+  useMapSocket({
+    enabled: mapReady,
+    subscribe,
+    onNearby: (data) => {
+      setUsers(data.users || [])
+      setTotal(data.total || 0)
+      setOnline(data.online || 0)
     },
-    [search, status, selectedProfessions],
-  )
+    onStatus: setSocketOk,
+  })
 
   useEffect(() => {
     api
@@ -162,13 +200,6 @@ export function MapPage() {
   }, [])
 
   useEffect(() => {
-    if (!mapReady) return
-    loadPeople(center[0], center[1], zoom)
-    const t = setInterval(() => loadPeople(center[0], center[1], zoom), 8000)
-    return () => clearInterval(t)
-  }, [mapReady, center, zoom, loadPeople])
-
-  useEffect(() => {
     if (!user) return
     api
       .get<{ success: boolean; data: { lat?: number; lng?: number } }>('/api/v1/me/profile')
@@ -181,6 +212,91 @@ export function MapPage() {
       })
       .catch(() => {})
   }, [user])
+
+  const stopLiveWatch = () => {
+    if (watchIdRef.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
+  }
+
+  const startLiveWatch = () => {
+    if (!navigator.geolocation) return
+    stopLiveWatch()
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        api
+          .post('/api/v1/live-location', { lat, lng })
+          .then(() => {
+            setCenter([lat, lng])
+          })
+          .catch(() => {})
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
+    )
+  }
+
+  useEffect(() => {
+    if (!user) {
+      setLiveOn(false)
+      stopLiveWatch()
+      return
+    }
+    api
+      .get<{ ok?: boolean; live?: boolean }>('/api/v1/live-location/status')
+      .then((r) => {
+        const on = !!r.live
+        setLiveOn(on)
+        if (on) startLiveWatch()
+      })
+      .catch(() => setLiveOn(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  useEffect(() => {
+    return () => stopLiveWatch()
+  }, [])
+
+  const toggleLive = async () => {
+    if (!loggedIn || liveBusy) return
+    setLiveBusy(true)
+    try {
+      if (liveOn) {
+        stopLiveWatch()
+        await api.delete('/api/v1/live-location')
+        setLiveOn(false)
+      } else {
+        const coords = await new Promise<GeolocationCoordinates>((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('Geolocation not supported'))
+            return
+          }
+          navigator.geolocation.getCurrentPosition(
+            (p) => resolve(p.coords),
+            reject,
+            { enableHighAccuracy: true, timeout: 10000 },
+          )
+        })
+        await api.post('/api/v1/live-location/start', {
+          lat: coords.latitude,
+          lng: coords.longitude,
+        })
+        setLiveOn(true)
+        setCenter([coords.latitude, coords.longitude])
+        setZoom(16)
+        setViewTick((t) => t + 1)
+        startLiveWatch()
+      }
+    } catch {
+      setLiveOn(false)
+      stopLiveWatch()
+    } finally {
+      setLiveBusy(false)
+    }
+  }
 
   const displayName = (u: NearbyUser) => {
     if (loggedIn && u.full_name) return u.full_name
@@ -230,6 +346,10 @@ export function MapPage() {
       </button>
 
       <div className="absolute left-1/2 top-3 z-[1000] flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#0b1224]/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
+        <span
+          className={`h-2 w-2 rounded-full ${socketOk ? 'bg-emerald-400' : 'bg-slate-500'}`}
+          title={socketOk ? 'Realtime connected' : 'Connecting…'}
+        />
         <span className="text-slate-400">
           USERS <strong className="text-white">{total}</strong>
         </span>
@@ -318,6 +438,14 @@ export function MapPage() {
           }}
         />
         <MapControls
+          loggedIn={loggedIn}
+          liveOn={liveOn}
+          liveBusy={liveBusy}
+          onToggleLive={() => {
+            void toggleLive()
+          }}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
           onLocate={() => {
             const me = users.find((u) => u.is_me)
             if (me) {
@@ -330,18 +458,11 @@ export function MapPage() {
         {markers}
       </MapContainer>
 
-      <button
-        type="button"
-        className="absolute bottom-4 right-4 z-[1000] flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg md:hidden"
-        onClick={() => setPanelOpen(true)}
-      >
-        <Users size={20} />
-      </button>
-
       <aside
         className={`absolute right-0 top-0 z-[1000] flex h-full w-[min(100%,22rem)] flex-col border-l border-white/10 bg-[#0b1224]/95 backdrop-blur transition ${
-          panelOpen ? 'translate-x-0' : 'translate-x-full'
+          panelOpen ? 'translate-x-0' : 'pointer-events-none translate-x-full'
         }`}
+        aria-hidden={!panelOpen}
       >
         <div className="flex flex-col gap-2 border-b border-white/10 p-3">
           <div className="flex items-center gap-2">
