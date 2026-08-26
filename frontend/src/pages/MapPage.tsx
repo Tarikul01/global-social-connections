@@ -56,6 +56,17 @@ function zoomToRadius(zoom: number) {
   return 5000
 }
 
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
+}
+
 function MapEvents({ onMove }: { onMove: (lat: number, lng: number, zoom: number) => void }) {
   const map = useMapEvents({
     moveend: () => {
@@ -164,6 +175,39 @@ export function MapPage() {
   const [liveOn, setLiveOn] = useState(false)
   const [liveBusy, setLiveBusy] = useState(false)
   const watchIdRef = useRef<number | null>(null)
+  const lastLiveSentRef = useRef<{ t: number; lat: number; lng: number } | null>(null)
+  const liveWatchActiveRef = useRef(false)
+  const liveUpdateRef = useRef<(lat: number, lng: number) => boolean>(() => false)
+
+  const stopLiveWatch = () => {
+    liveWatchActiveRef.current = false
+    lastLiveSentRef.current = null
+    if (watchIdRef.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+    }
+  }
+
+  const startLiveWatch = () => {
+    if (!navigator.geolocation) return
+    stopLiveWatch()
+    liveWatchActiveRef.current = true
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        const now = Date.now()
+        const prev = lastLiveSentRef.current
+        const moved = !prev || haversineM(prev.lat, prev.lng, lat, lng) >= 25
+        const due = !prev || now - prev.t >= 5000
+        if (!moved && !due) return
+        lastLiveSentRef.current = { t: now, lat, lng }
+        liveUpdateRef.current(lat, lng)
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    )
+  }
 
   const subscribe = mapReady
     ? {
@@ -176,7 +220,7 @@ export function MapPage() {
       }
     : null
 
-  useMapSocket({
+  const { liveStart, liveUpdate, liveStop } = useMapSocket({
     enabled: mapReady,
     authKey: user?.id || 'guest',
     subscribe,
@@ -184,21 +228,26 @@ export function MapPage() {
       setUsers(data.users || [])
       setTotal(data.total || 0)
       setOnline(data.online || 0)
+      if (typeof data.live === 'boolean') {
+        setLiveOn(data.live)
+        if (data.live && !liveWatchActiveRef.current) {
+          startLiveWatch()
+        } else if (!data.live) {
+          stopLiveWatch()
+        }
+      }
+    },
+    onLive: (data) => {
+      if (typeof data.live === 'boolean') setLiveOn(data.live)
     },
     onStatus: setSocketOk,
   })
+  liveUpdateRef.current = liveUpdate
 
   useEffect(() => {
     api
       .get<{ success: boolean; data: Profession[] }>('/api/v1/professions')
       .then((r) => setProfessions(r.data || []))
-      .catch(() => {})
-    api
-      .get<{ success: boolean; data: { total: number; online: number } }>('/api/v1/stats')
-      .then((r) => {
-        setTotal(r.data.total)
-        setOnline(r.data.online)
-      })
       .catch(() => {})
   }, [])
 
@@ -216,47 +265,11 @@ export function MapPage() {
       .catch(() => {})
   }, [user])
 
-  const stopLiveWatch = () => {
-    if (watchIdRef.current != null && navigator.geolocation) {
-      navigator.geolocation.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
-  }
-
-  const startLiveWatch = () => {
-    if (!navigator.geolocation) return
-    stopLiveWatch()
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude
-        const lng = pos.coords.longitude
-        api
-          .post('/api/v1/live-location', { lat, lng })
-          .then(() => {
-            setCenter([lat, lng])
-          })
-          .catch(() => {})
-      },
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
-    )
-  }
-
   useEffect(() => {
     if (!user) {
       setLiveOn(false)
       stopLiveWatch()
-      return
     }
-    api
-      .get<{ ok?: boolean; live?: boolean }>('/api/v1/live-location/status')
-      .then((r) => {
-        const on = !!r.live
-        setLiveOn(on)
-        if (on) startLiveWatch()
-      })
-      .catch(() => setLiveOn(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
   useEffect(() => {
@@ -269,7 +282,7 @@ export function MapPage() {
     try {
       if (liveOn) {
         stopLiveWatch()
-        await api.delete('/api/v1/live-location')
+        liveStop()
         setLiveOn(false)
       } else {
         const coords = await new Promise<GeolocationCoordinates>((resolve, reject) => {
@@ -283,10 +296,8 @@ export function MapPage() {
             { enableHighAccuracy: true, timeout: 10000 },
           )
         })
-        await api.post('/api/v1/live-location/start', {
-          lat: coords.latitude,
-          lng: coords.longitude,
-        })
+        const ok = liveStart(coords.latitude, coords.longitude)
+        if (!ok) throw new Error('socket not connected')
         setLiveOn(true)
         setCenter([coords.latitude, coords.longitude])
         setZoom(16)

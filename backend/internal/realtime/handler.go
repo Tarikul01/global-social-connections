@@ -2,8 +2,6 @@ package realtime
 
 import (
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/findneighbour/findneighbour/internal/auth"
 	"github.com/gin-gonic/gin"
@@ -53,11 +51,11 @@ func (h *Handler) ServeWS(c *gin.Context) {
 	client.readPump()
 }
 
-// DebouncedBroadcaster coalesces rapid location updates into one refresh.
+// DebouncedBroadcaster notifies the hub that the map should refresh.
+// Hub.BroadcastMapChanged already debounces; this keeps the old interface
+// for HTTP controllers (login/logout, legacy live-location routes).
 type DebouncedBroadcaster struct {
-	hub  *Hub
-	mu   sync.Mutex
-	timer *time.Timer
+	hub *Hub
 }
 
 func NewDebouncedBroadcaster(hub *Hub) *DebouncedBroadcaster {
@@ -65,12 +63,5 @@ func NewDebouncedBroadcaster(hub *Hub) *DebouncedBroadcaster {
 }
 
 func (d *DebouncedBroadcaster) BroadcastMapChanged() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.timer != nil {
-		d.timer.Stop()
-	}
-	d.timer = time.AfterFunc(400*time.Millisecond, func() {
-		d.hub.RefreshAll()
-	})
+	d.hub.BroadcastMapChanged()
 }

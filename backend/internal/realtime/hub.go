@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -25,9 +26,22 @@ type SubscribeData struct {
 	Professions []string `json:"professions"`
 }
 
+// LiveCoords is lat/lng for live sharing over the socket.
+type LiveCoords struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
 // NearbyProvider loads a map snapshot for a subscriber.
 type NearbyProvider interface {
 	NearbySnapshot(viewerID uuid.UUID, sub SubscribeData) (any, error)
+}
+
+// LiveLocationHandler applies live-sharing mutations from WebSocket events.
+type LiveLocationHandler interface {
+	StartLive(ctx context.Context, userID uuid.UUID, lat, lng float64) error
+	UpdateLive(ctx context.Context, userID uuid.UUID, lat, lng float64) error
+	StopLive(ctx context.Context, userID uuid.UUID) error
 }
 
 // Presence reports who is currently connected to the map (realtime online).
@@ -55,6 +69,10 @@ type Hub struct {
 	register   chan *Client
 	unregister chan *Client
 	provider   NearbyProvider
+	live       LiveLocationHandler
+
+	refreshMu    sync.Mutex
+	refreshTimer *time.Timer
 }
 
 func NewHub(provider NearbyProvider) *Hub {
@@ -65,6 +83,10 @@ func NewHub(provider NearbyProvider) *Hub {
 		unregister: make(chan *Client),
 		provider:   provider,
 	}
+}
+
+func (h *Hub) SetLiveHandler(live LiveLocationHandler) {
+	h.live = live
 }
 
 func (h *Hub) Run() {
@@ -133,9 +155,16 @@ func (h *Hub) OnlineIDs() []uuid.UUID {
 	return out
 }
 
-// BroadcastMapChanged re-pushes nearby snapshots to every subscribed client.
+// BroadcastMapChanged re-pushes nearby snapshots (debounced).
 func (h *Hub) BroadcastMapChanged() {
-	go h.RefreshAll()
+	h.refreshMu.Lock()
+	defer h.refreshMu.Unlock()
+	if h.refreshTimer != nil {
+		h.refreshTimer.Stop()
+	}
+	h.refreshTimer = time.AfterFunc(400*time.Millisecond, func() {
+		h.RefreshAll()
+	})
 }
 
 func (h *Hub) setSubscription(c *Client, sub SubscribeData) {
@@ -171,6 +200,53 @@ func (h *Hub) pushNearby(c *Client) {
 	case c.send <- body:
 	default:
 	}
+}
+
+func (h *Hub) reply(c *Client, typ string, data any) {
+	body, _ := json.Marshal(Envelope{Type: typ, Data: mustJSON(data)})
+	select {
+	case c.send <- body:
+	default:
+	}
+}
+
+func (h *Hub) handleLiveStart(c *Client, raw json.RawMessage) {
+	if c.viewerID == uuid.Nil || h.live == nil {
+		h.reply(c, "live", map[string]any{"ok": false, "live": false, "error": "login required"})
+		return
+	}
+	var coords LiveCoords
+	_ = json.Unmarshal(raw, &coords)
+	if err := h.live.StartLive(context.Background(), c.viewerID, coords.Lat, coords.Lng); err != nil {
+		h.reply(c, "live", map[string]any{"ok": false, "live": false, "error": "failed to start"})
+		return
+	}
+	h.reply(c, "live", map[string]any{"ok": true, "live": true})
+	h.BroadcastMapChanged()
+}
+
+func (h *Hub) handleLiveUpdate(c *Client, raw json.RawMessage) {
+	if c.viewerID == uuid.Nil || h.live == nil {
+		return
+	}
+	var coords LiveCoords
+	if err := json.Unmarshal(raw, &coords); err != nil {
+		return
+	}
+	if err := h.live.UpdateLive(context.Background(), c.viewerID, coords.Lat, coords.Lng); err != nil {
+		return
+	}
+	h.BroadcastMapChanged()
+}
+
+func (h *Hub) handleLiveStop(c *Client) {
+	if c.viewerID == uuid.Nil || h.live == nil {
+		h.reply(c, "live", map[string]any{"ok": false, "live": false, "error": "login required"})
+		return
+	}
+	_ = h.live.StopLive(context.Background(), c.viewerID)
+	h.reply(c, "live", map[string]any{"ok": true, "live": false})
+	h.BroadcastMapChanged()
 }
 
 // RefreshAll re-pushes nearby snapshots to every subscribed client.
@@ -229,6 +305,12 @@ func (c *Client) readPump() {
 				sub.RadiusKm = 40
 			}
 			c.hub.setSubscription(c, sub)
+		case "live_start":
+			c.hub.handleLiveStart(c, env.Data)
+		case "live_update":
+			c.hub.handleLiveUpdate(c, env.Data)
+		case "live_stop":
+			c.hub.handleLiveStop(c)
 		case "ping":
 			pong, _ := json.Marshal(Envelope{Type: "pong"})
 			select {

@@ -231,6 +231,25 @@ func (s *Service) IsLiveSharing(ctx context.Context, userID uuid.UUID) bool {
 	return err == nil && sSettings.LiveSharingEnabled
 }
 
+// StartLive / UpdateLive / StopLive implement realtime.LiveLocationHandler for WebSocket.
+func (s *Service) StartLive(ctx context.Context, userID uuid.UUID, lat, lng float64) error {
+	if err := s.EnableLiveSharing(ctx, userID); err != nil {
+		return err
+	}
+	if lat != 0 || lng != 0 {
+		return s.UpdateLiveLocation(ctx, userID, nil, lat, lng)
+	}
+	return nil
+}
+
+func (s *Service) UpdateLive(ctx context.Context, userID uuid.UUID, lat, lng float64) error {
+	return s.UpdateLiveLocation(ctx, userID, nil, lat, lng)
+}
+
+func (s *Service) StopLive(ctx context.Context, userID uuid.UUID) error {
+	return s.StopLiveLocation(ctx, userID, nil)
+}
+
 func (s *Service) ActiveLiveOrPermanent(ctx context.Context, userID uuid.UUID) (lat, lng float64, live bool, ok bool) {
 	if flat, flng, lok, _ := s.repo.GetActiveLiveLocation(ctx, userID); lok {
 		return flat, flng, true, true

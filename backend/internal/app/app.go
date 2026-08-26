@@ -102,6 +102,7 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 	socialCtrl := social.NewController(socialSvc, authSvc, log, tmpl)
 
 	hub := realtime.NewHub(userCtrl)
+	hub.SetLiveHandler(locSvc)
 	go hub.Run()
 	userCtrl.SetPresence(hub)
 	wsHandler := realtime.NewHandler(hub)
