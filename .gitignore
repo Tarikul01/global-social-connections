@@ -11,8 +11,10 @@ server
 .env.local
 .env.production
 .env.*.local
+.env.vercel
 backend/.env
 backend/.env.production
+backend/.env.vercel
 frontend/.env
 frontend/.env.local
 

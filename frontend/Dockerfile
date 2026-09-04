@@ -1,11 +1,12 @@
 # syntax=docker/dockerfile:1
+# Local docker-compose frontend — nginx proxies /api to backend:8080.
+# Not used by Vercel.
 
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# Empty = same-origin /api via nginx proxy to backend
 ENV VITE_API_URL=
 RUN npm run build
 

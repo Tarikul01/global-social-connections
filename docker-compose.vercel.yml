@@ -1,0 +1,78 @@
+# Vercel-shaped local stack — uses *.vercel Dockerfiles + gateway rewrites.
+# Does NOT replace docker-compose.yml (local PostGIS + classic Dockerfiles).
+#
+# Usage:
+#   cp -n backend/.env.vercel.example backend/.env.vercel
+#   # edit APP_SECRET (+ DATABASE_URL if not using the bundled postgres)
+#   docker compose -f docker-compose.vercel.yml up --build
+#
+# Then open http://localhost:3080  (gateway mimics vercel.json routing)
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: gsc-vercel-postgres
+    environment:
+      POSTGRES_USER: findneighbour
+      POSTGRES_PASSWORD: findneighbour
+      POSTGRES_DB: findneighbour
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata_vercel:/var/lib/postgresql/data
+      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./backend/migrations/003_profile_enrichment.sql:/docker-entrypoint-initdb.d/03_enrichment.sql:ro
+      - ./backend/migrations/004_profile_personal.sql:/docker-entrypoint-initdb.d/04_personal.sql:ro
+      - ./backend/migrations/006_event_invitations.sql:/docker-entrypoint-initdb.d/06_invitations.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U findneighbour -d findneighbour"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.vercel
+    container_name: gsc-vercel-backend
+    env_file:
+      - ./backend/.env.vercel
+    environment:
+      APP_ENV: production
+      PORT: "80"
+      APP_PORT: "80"
+      APP_URL: http://localhost:3080
+      FRONTEND_URL: http://localhost:3080
+      DATABASE_URL: postgresql://findneighbour:findneighbour@postgres:5432/findneighbour?sslmode=disable
+    expose:
+      - "80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.vercel
+    container_name: gsc-vercel-frontend
+    environment:
+      PORT: "80"
+    expose:
+      - "80"
+    depends_on:
+      - backend
+
+  # Same routing idea as vercel.json rewrites
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: gsc-vercel-gateway
+    ports:
+      - "3080:80"
+    volumes:
+      - ./nginx.vercel.gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  pgdata_vercel:

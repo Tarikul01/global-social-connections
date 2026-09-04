@@ -54,6 +54,11 @@ docker compose up --build
 # Frontend http://localhost:3000 · API http://localhost:8080
 ```
 
+## Deploy (Vercel Docker)
+
+Vercel-only files: `vercel.json`, `*.vercel*`, `docker-compose.vercel.yml`, `DEPLOY.md`.  
+Do not mix Vercel env into `backend/.env` — use `backend/.env.vercel` (from `.env.vercel.example`).
+
 ## How we develop
 
 | Area | Notes |

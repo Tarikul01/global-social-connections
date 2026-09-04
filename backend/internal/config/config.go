@@ -32,9 +32,14 @@ func Load() (*Config, error) {
 	_ = godotenvLoad()
 
 	sessionHours := getEnvInt("SESSION_DURATION_HOURS", 168)
+	// Vercel / container platforms inject PORT; fall back to APP_PORT for local Docker.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = getEnv("APP_PORT", "8080")
+	}
 	cfg := &Config{
 		AppEnv:        getEnv("APP_ENV", "development"),
-		AppPort:       getEnv("APP_PORT", "8080"),
+		AppPort:       port,
 		AppURL:        getEnv("APP_URL", "http://localhost:8080"),
 		AppSecret:     getEnv("APP_SECRET", ""),
 		DatabaseURL:   getEnv("DATABASE_URL", ""),
