@@ -3,8 +3,9 @@
 /tmp/
 *.exe
 backend/bin/
+# Compiled binary only (do NOT ignore backend/cmd/server source)
+/server
 backend/server
-server
 
 # Environment
 .env

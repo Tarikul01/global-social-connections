@@ -4,7 +4,8 @@
 *.md
 bin/
 tmp/
-server
+# Binary at backend root only — never ignore cmd/server/
+/server
 docs/
 scripts/
 data/
