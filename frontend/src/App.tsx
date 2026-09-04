@@ -4,6 +4,9 @@ import { MapPage } from './pages/MapPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { EventsPage } from './pages/EventsPage'
+import { EventCreatePage } from './pages/EventCreatePage'
+import { EventDetailPage } from './pages/EventDetailPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -38,7 +41,23 @@ export default function App() {
             path="/events"
             element={
               <Protected>
-                <PlaceholderPage title="Events" />
+                <EventsPage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/events/new"
+            element={
+              <Protected>
+                <EventCreatePage />
+              </Protected>
+            }
+          />
+          <Route
+            path="/events/:id"
+            element={
+              <Protected>
+                <EventDetailPage />
               </Protected>
             }
           />

@@ -136,7 +136,16 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.GET("/live-location/status", d.LocCtrl.LiveStatus)
 			protected.DELETE("/live-location", d.LocCtrl.StopLiveLocation)
 
+			protected.GET("/events", d.EventCtrl.ListJSON)
+			protected.POST("/events", d.EventCtrl.CreateJSON)
 			protected.GET("/events/hosted", d.EventCtrl.ListHostedJSON)
+			protected.GET("/events/:id", d.EventCtrl.ShowJSON)
+			protected.POST("/events/:id/join", d.EventCtrl.JoinJSON)
+			protected.POST("/events/:id/invite", d.EventCtrl.InviteJSON)
+			protected.POST("/events/:id/invitations/:invId/accept", d.EventCtrl.AcceptInvitationJSON)
+			protected.POST("/events/:id/invitations/:invId/decline", d.EventCtrl.DeclineInvitationJSON)
+			protected.POST("/events/:id/requests/:reqId/accept", d.EventCtrl.AcceptJoinJSON)
+			protected.POST("/events/:id/requests/:reqId/reject", d.EventCtrl.RejectJoinJSON)
 			protected.GET("/events/:id/map-members", d.EventCtrl.EventMapJSON)
 
 			protected.GET("/notifications", d.NotifCtrl.ListJSON)
