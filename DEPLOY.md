@@ -30,16 +30,18 @@ Production settings live in **`backend/env.vercel`** and are copied into the ima
 You do **not** need Vercel dashboard env vars or `.env.production` for the API to boot.
 
 ```
-backend/env.vercel  →  Docker COPY  →  /app/.env  →  entrypoint sources it
+backend/env.vercel  →  Docker COPY  →  /app/.env  →  entrypoint force-exports DB/secrets
 ```
 
 Domain: https://global-social-connections.vercel.app
 
 > Warning: baking `DATABASE_URL` / secrets into a committed file puts them in the image and git history. Prefer rotating credentials if the repo is public.
 
-That log is a **successful build** (not a failure). If `/healthz` still returns `FUNCTION_INVOCATION_FAILED`, the Go process is crashing on **database connect**.
+If `/healthz` returns `FUNCTION_INVOCATION_FAILED`, the Go process crashed on boot (almost always **database connect**).
 
-Use the Supabase **pooler** URL in `backend/env.vercel` (direct `db.*.supabase.co` often does not resolve from Vercel).
+Use the Supabase **pooler** URL in `backend/env.vercel` (direct `db.*.supabase.co` often fails from cloud runtimes).
+
+**Important:** Remove any conflicting `DATABASE_URL` from the Vercel project Environment Variables, or set it to the same pooler URL. Dashboard env overrides `godotenv`; the entrypoint now re-applies baked `/app/.env` for `DATABASE_URL` so a stale dashboard value cannot kill the container.
 
 ```
 Browser  →  https://global-social-connections.vercel.app

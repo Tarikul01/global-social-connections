@@ -22,6 +22,8 @@ func Connect(ctx context.Context, databaseURL string) (*DB, error) {
 	cfg.MinConns = 1
 	cfg.MaxConnLifetime = time.Hour
 	cfg.ConnConfig.ConnectTimeout = 15 * time.Second
+	// Supabase transaction pooler (port 6543) rejects prepared statements.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
