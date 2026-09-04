@@ -37,7 +37,9 @@ Domain: https://global-social-connections.vercel.app
 
 > Warning: baking `DATABASE_URL` / secrets into a committed file puts them in the image and git history. Prefer rotating credentials if the repo is public.
 
-## Architecture on Vercel
+That log is a **successful build** (not a failure). If `/healthz` still returns `FUNCTION_INVOCATION_FAILED`, the Go process is crashing on **database connect**.
+
+Use the Supabase **pooler** URL in `backend/env.vercel` (direct `db.*.supabase.co` often does not resolve from Vercel).
 
 ```
 Browser  →  https://global-social-connections.vercel.app
