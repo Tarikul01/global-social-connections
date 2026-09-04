@@ -9,9 +9,10 @@ Vercel-only files are named `*.vercel*` / `vercel.json` so local Docker stays un
 | File | Purpose |
 |------|---------|
 | `vercel.json` | Multi-service containers + `/api` rewrites |
+| `backend/env.vercel` | Production env baked into the backend image |
 | `backend/Dockerfile.vercel` | Go API image for Vercel (`$PORT`) |
-| `backend/docker-entrypoint.vercel.sh` | Maps `PORT` → Go listen port |
-| `backend/.env.vercel.example` | Env template → copy to `backend/.env.vercel` |
+| `backend/docker-entrypoint.vercel.sh` | Loads `/app/.env`, maps `PORT` |
+| `backend/.env.vercel.example` | Optional local compose template only |
 | `frontend/Dockerfile.vercel` | SPA nginx image for Vercel |
 | `frontend/docker-entrypoint.vercel.sh` | nginx listen on `$PORT` |
 | `frontend/nginx.vercel.conf` | SPA-only nginx (no API proxy) |
@@ -21,6 +22,20 @@ Vercel-only files are named `*.vercel*` / `vercel.json` so local Docker stays un
 | `DEPLOY.md` | This guide |
 
 **Local (unchanged):** `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `backend/.env.example`, `frontend/nginx.conf`.
+
+## Production env on Vercel (baked into Docker)
+
+Production settings live in **`backend/env.vercel`** and are copied into the image as `/app/.env` by `Dockerfile.vercel`.
+
+You do **not** need Vercel dashboard env vars or `.env.production` for the API to boot.
+
+```
+backend/env.vercel  →  Docker COPY  →  /app/.env  →  entrypoint sources it
+```
+
+Domain: https://global-social-connections.vercel.app
+
+> Warning: baking `DATABASE_URL` / secrets into a committed file puts them in the image and git history. Prefer rotating credentials if the repo is public.
 
 ## Architecture on Vercel
 
@@ -32,12 +47,10 @@ Browser  →  https://global-social-connections.vercel.app
 
 ## 1. Env files
 
-```bash
-cp -n backend/.env.vercel.example backend/.env.vercel
-# Edit APP_SECRET and DATABASE_URL (external PostGIS for real Vercel deploy)
-```
+Production for Vercel is **`backend/env.vercel`** (committed, baked into Docker).  
+Edit that file to change DB URL / secrets, then redeploy.
 
-Paste the same keys into **Vercel → Settings → Environment Variables** (see `.env.vercel.example`).
+Optional local dry-run still uses `backend/.env.vercel` with `docker-compose.vercel.yml`.
 
 ## 2. Database
 
@@ -72,9 +85,8 @@ vercel link
 vercel --prod
 ```
 
-Required dashboard env: `DATABASE_URL`, `APP_SECRET`, `APP_ENV=production`,
-`APP_URL=https://global-social-connections.vercel.app`,
-`FRONTEND_URL=https://global-social-connections.vercel.app`.
+Required dashboard env: **none for basic boot** (values come from `backend/env.vercel` inside the image).  
+You may still set overrides in the Vercel UI if you want.
 
 Enable **Fluid compute** (needed for WebSockets).
 

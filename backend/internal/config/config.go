@@ -91,8 +91,5 @@ func getEnvInt(key string, fallback int) int {
 }
 
 func godotenvLoad() error {
-	if _, err := os.Stat(".env"); err != nil {
-		return nil
-	}
 	return loadDotEnv()
 }
