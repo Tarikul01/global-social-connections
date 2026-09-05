@@ -125,7 +125,7 @@ type NearbyQuery struct {
 }
 
 // NearbyPayload builds the same payload used by REST and the realtime hub.
-// Online = active session (DB) OR WebSocket presence on this instance.
+// Online = WebSocket heartbeat / last_seen (closes browser → offline).
 func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUID, q NearbyQuery) (gin.H, error) {
 	onlineOnly := q.Status == "online"
 	offlineOnly := q.Status == "offline"
@@ -133,7 +133,7 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 		q.RadiusKm = 50
 	}
 
-	// When presence is available, filter online/offline in memory after overlay.
+	// Prefer SQL last_seen filters; presence overlay refines after fetch.
 	sqlOnlineOnly := onlineOnly && ctrl.presence == nil
 	sqlOfflineOnly := offlineOnly && ctrl.presence == nil
 
@@ -164,14 +164,11 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 		}
 	}
 
-	// Online = active login session (DB, works across Vercel instances).
-	// WebSocket presence can only ADD online (same-instance map viewers).
+	// Overlay DB heartbeat presence (source of truth for online/offline).
 	if ctrl.presence != nil {
 		out := users[:0]
 		for _, u := range users {
-			if ctrl.presence.IsOnline(u.ID) {
-				u.Online = true
-			}
+			u.Online = ctrl.presence.IsOnline(u.ID)
 			if onlineOnly && !u.Online {
 				continue
 			}
@@ -183,14 +180,7 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 		users = out
 	}
 
-	total, sessionOnline, _ := ctrl.users.CountDiscoverable(ctx)
-	// Prefer session count so ONLINE is correct when map sockets land on different instances.
-	online := sessionOnline
-	if ctrl.presence != nil {
-		if n := ctrl.presence.OnlineCount(); n > online {
-			online = n
-		}
-	}
+	total, online, _ := ctrl.users.CountDiscoverable(ctx)
 
 	payload := gin.H{
 		"total":  total,
@@ -255,11 +245,6 @@ func (ctrl *UserController) StatsJSON(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load stats"})
 		return
-	}
-	if ctrl.presence != nil {
-		if n := ctrl.presence.OnlineCount(); n > online {
-			online = n
-		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

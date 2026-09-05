@@ -44,7 +44,13 @@ type LiveLocationHandler interface {
 	StopLive(ctx context.Context, userID uuid.UUID) error
 }
 
-// Presence reports who is currently connected to the map (realtime online).
+// PresenceStore persists heartbeat online/offline across instances.
+type PresenceStore interface {
+	Touch(ctx context.Context, userID uuid.UUID)
+	Clear(ctx context.Context, userID uuid.UUID)
+}
+
+// Presence reports who is currently online on the map.
 type Presence interface {
 	IsOnline(userID uuid.UUID) bool
 	OnlineCount() int
@@ -65,11 +71,12 @@ type Client struct {
 type Hub struct {
 	mu         sync.RWMutex
 	clients    map[*Client]struct{}
-	presence   map[uuid.UUID]int // ref-count tabs/devices per user
+	presence   map[uuid.UUID]int // ref-count tabs/devices per user (this instance)
 	register   chan *Client
 	unregister chan *Client
 	provider   NearbyProvider
 	live       LiveLocationHandler
+	store      PresenceStore
 
 	refreshMu    sync.Mutex
 	refreshTimer *time.Timer
@@ -89,8 +96,30 @@ func (h *Hub) SetLiveHandler(live LiveLocationHandler) {
 	h.live = live
 }
 
+func (h *Hub) SetPresenceStore(store PresenceStore) {
+	h.store = store
+}
+
+func (h *Hub) touch(userID uuid.UUID) {
+	if h.store == nil || userID == uuid.Nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	h.store.Touch(ctx, userID)
+}
+
+func (h *Hub) clear(userID uuid.UUID) {
+	if h.store == nil || userID == uuid.Nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	h.store.Clear(ctx, userID)
+}
+
 func (h *Hub) Run() {
-	// Periodic refresh so session-based online/offline updates without Redis.
+	// Refresh snapshots so online/offline (last_seen) propagates to open maps.
 	ticker := time.NewTicker(12 * time.Second)
 	defer ticker.Stop()
 
@@ -107,12 +136,16 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.Unlock()
+			if c.viewerID != uuid.Nil {
+				h.touch(c.viewerID)
+			}
 			if changed {
 				h.BroadcastMapChanged()
 			}
 
 		case c := <-h.unregister:
 			changed := false
+			wentOffline := false
 			h.mu.Lock()
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
@@ -122,11 +155,15 @@ func (h *Hub) Run() {
 				if n := h.presence[c.viewerID]; n <= 1 {
 					delete(h.presence, c.viewerID)
 					changed = true
+					wentOffline = true
 				} else {
 					h.presence[c.viewerID] = n - 1
 				}
 			}
 			h.mu.Unlock()
+			if wentOffline {
+				h.clear(c.viewerID)
+			}
 			if changed {
 				h.BroadcastMapChanged()
 			}
@@ -319,6 +356,9 @@ func (c *Client) readPump() {
 		case "live_stop":
 			c.hub.handleLiveStop(c)
 		case "ping":
+			if c.viewerID != uuid.Nil {
+				c.hub.touch(c.viewerID)
+			}
 			pong, _ := json.Marshal(Envelope{Type: "pong"})
 			select {
 			case c.send <- pong:

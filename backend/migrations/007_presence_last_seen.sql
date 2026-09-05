@@ -1,0 +1,5 @@
+-- Presence: online while map WebSocket is open (heartbeat refreshes last_seen_at).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_last_seen_at ON users (last_seen_at)
+  WHERE deleted_at IS NULL AND last_seen_at IS NOT NULL;

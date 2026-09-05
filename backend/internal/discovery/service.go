@@ -107,10 +107,10 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 				  AND ll.updated_at > now() - interval '5 minutes'
 			) AS is_live,
 			EXISTS (
-				SELECT 1 FROM sessions sess
-				WHERE sess.user_id = u.id
-				  AND sess.revoked_at IS NULL
-				  AND sess.expires_at > now()
+				SELECT 1 FROM users uu
+				WHERE uu.id = u.id
+				  AND uu.last_seen_at IS NOT NULL
+				  AND uu.last_seen_at > now() - interval '90 seconds'
 			) AS is_present,
 			COALESCE(f.storage_path, '') AS photo_path
 		FROM users u
@@ -155,16 +155,10 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		argN++
 	}
 	if f.OnlineOnly {
-		q += ` AND EXISTS (
-			SELECT 1 FROM sessions sess
-			WHERE sess.user_id = u.id AND sess.revoked_at IS NULL AND sess.expires_at > now()
-		)`
+		q += ` AND u.last_seen_at IS NOT NULL AND u.last_seen_at > now() - interval '90 seconds'`
 	}
 	if f.OfflineOnly {
-		q += ` AND NOT EXISTS (
-			SELECT 1 FROM sessions sess
-			WHERE sess.user_id = u.id AND sess.revoked_at IS NULL AND sess.expires_at > now()
-		)`
+		q += ` AND (u.last_seen_at IS NULL OR u.last_seen_at <= now() - interval '90 seconds')`
 	}
 	if f.Query != "" {
 		if viewerID == uuid.Nil {
@@ -199,7 +193,7 @@ func (s *Service) Nearby(ctx context.Context, viewerID uuid.UUID, f Filters) ([]
 		if isLive {
 			u.MarkerType = "live"
 		}
-		// Online = currently logged in (active session), not profile availability preference.
+		// Online = map WebSocket heartbeat (users.last_seen_at), not login session.
 		u.Online = isPresent
 		u.Initials = initialsForUser(u.FullName, u.Username)
 		u.PhotoURL = publicPhotoURL(photoPath)
@@ -276,8 +270,11 @@ func (s *Service) IsOnline(ctx context.Context, userID uuid.UUID) bool {
 	var ok bool
 	_ = s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM sessions
-			WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+			SELECT 1 FROM users
+			WHERE id = $1
+			  AND deleted_at IS NULL
+			  AND last_seen_at IS NOT NULL
+			  AND last_seen_at > now() - interval '90 seconds'
 		)
 	`, userID).Scan(&ok)
 	return ok
@@ -287,12 +284,10 @@ func (s *Service) CountDiscoverable(ctx context.Context) (total, online int, err
 	err = s.pool.QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE true),
-			COUNT(*) FILTER (WHERE EXISTS (
-				SELECT 1 FROM sessions sess
-				WHERE sess.user_id = u.id
-				  AND sess.revoked_at IS NULL
-				  AND sess.expires_at > now()
-			))
+			COUNT(*) FILTER (
+				WHERE u.last_seen_at IS NOT NULL
+				  AND u.last_seen_at > now() - interval '90 seconds'
+			)
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
 		JOIN user_locations ul ON ul.user_id = u.id

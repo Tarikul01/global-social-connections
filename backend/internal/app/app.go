@@ -103,8 +103,10 @@ func New(ctx context.Context, cfg *config.Config) (*App, error) {
 
 	hub := realtime.NewHub(userCtrl)
 	hub.SetLiveHandler(locSvc)
+	dbPresence := realtime.NewDBPresence(db.Pool)
+	hub.SetPresenceStore(dbPresence)
 	go hub.Run()
-	userCtrl.SetPresence(hub)
+	userCtrl.SetPresence(dbPresence)
 	wsHandler := realtime.NewHandler(hub)
 	mapBus := realtime.NewDebouncedBroadcaster(hub)
 	locCtrl.SetBroadcaster(mapBus)

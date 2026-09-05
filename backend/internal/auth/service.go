@@ -155,6 +155,7 @@ func (r *Repository) ClearPresenceOnLogout(ctx context.Context, userID uuid.UUID
 		WHERE user_id = $1
 	`, userID)
 	_, _ = r.pool.Exec(ctx, `DELETE FROM live_locations WHERE user_id = $1`, userID)
+	_, _ = r.pool.Exec(ctx, `UPDATE users SET last_seen_at = NULL WHERE id = $1`, userID)
 }
 
 func (r *Repository) IncrementFailedLogin(ctx context.Context, userID uuid.UUID) error {
