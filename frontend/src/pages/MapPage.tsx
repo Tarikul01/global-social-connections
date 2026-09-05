@@ -22,14 +22,23 @@ type EventMapMember = {
   initials: string
   lat: number
   lng: number
+  online?: boolean
   live: boolean
 }
 
-function eventMemberIcon(initials: string, live: boolean) {
+function eventMemberIcon(initials: string, online: boolean, live: boolean) {
   const short = escapeHtml(initials || '?')
+  const classes = [
+    'disc-marker',
+    online ? 'online' : 'offline',
+    live ? 'live' : '',
+    'event-attendee',
+  ]
+    .filter(Boolean)
+    .join(' ')
   return L.divIcon({
     className: '',
-    html: `<div class="disc-marker ${live ? 'online' : 'offline'} event-attendee"><span class="disc-initials">${short}</span><span class="dot"></span></div>`,
+    html: `<div class="${classes}"><span class="disc-initials">${short}</span><span class="dot"></span></div>`,
     iconSize: [40, 40],
     iconAnchor: [20, 20],
   })
@@ -59,6 +68,7 @@ function FitBounds({
 function markerIcon(u: NearbyUser, loggedIn: boolean) {
   const status = u.online ? 'online' : 'offline'
   const me = u.is_me ? ' me' : ''
+  const live = u.live ? ' live' : ''
   const short = escapeHtml(
     userShortform({
       initials: u.initials,
@@ -70,7 +80,7 @@ function markerIcon(u: NearbyUser, loggedIn: boolean) {
   const img = u.photo_url
     ? `<img src="${escapeAttr(u.photo_url)}" alt="" onerror="this.style.display='none'">`
     : ''
-  const html = `<div class="disc-marker ${status}${me}"><span class="disc-initials">${short}</span>${img}<span class="dot"></span></div>`
+  const html = `<div class="disc-marker ${status}${me}${live}"><span class="disc-initials">${short}</span>${img}<span class="dot"></span></div>`
   return L.divIcon({
     className: '',
     html,
@@ -647,18 +657,34 @@ export function MapPage() {
 
   const routeAttendees = useMemo(() => {
     return eventMembers.map((m) => {
+      const nearby = users.find((u) => u.username === m.username)
+      const isMe = !!user?.username && m.username === user.username
+      // Presence: DB heartbeat, nearby stream, or self while map socket is up.
+      const online = Boolean(m.online || nearby?.online || (isMe && loggedIn && socketOk))
+
       // Prefer own live GPS immediately while sharing.
-      if (liveOn && myLiveCoords && user?.username && m.username === user.username) {
-        return { ...m, lat: myLiveCoords.lat, lng: myLiveCoords.lng, live: true }
+      if (liveOn && myLiveCoords && isMe) {
+        return {
+          ...m,
+          lat: myLiveCoords.lat,
+          lng: myLiveCoords.lng,
+          live: true,
+          online: true,
+        }
       }
       // Prefer other members' live pins from nearby stream.
-      const nearby = users.find((u) => u.username === m.username && u.live)
-      if (nearby && typeof nearby.lat === 'number' && typeof nearby.lng === 'number') {
-        return { ...m, lat: nearby.lat, lng: nearby.lng, live: true }
+      if (nearby?.live && typeof nearby.lat === 'number' && typeof nearby.lng === 'number') {
+        return {
+          ...m,
+          lat: nearby.lat,
+          lng: nearby.lng,
+          live: true,
+          online: nearby.online ?? online,
+        }
       }
-      return m
+      return { ...m, online }
     })
-  }, [eventMembers, liveOn, myLiveCoords, user?.username, users])
+  }, [eventMembers, liveOn, loggedIn, myLiveCoords, socketOk, user?.username, users])
 
   const routeBounds = useMemo((): [number, number][] => {
     if (!eventFocus || !soloEvent) return []
@@ -681,16 +707,33 @@ export function MapPage() {
     [routeAttendees],
   )
 
+  /** Own pin: live GPS + heartbeat class as soon as live sharing is on. */
+  const mapUsers = useMemo(() => {
+    return users.map((u) => {
+      const isMe = u.is_me || (!!user?.username && u.username === user.username)
+      if (!liveOn || !isMe) return u
+      return {
+        ...u,
+        is_me: true,
+        online: true,
+        live: true,
+        ...(myLiveCoords
+          ? { lat: myLiveCoords.lat, lng: myLiveCoords.lng }
+          : null),
+      }
+    })
+  }, [liveOn, myLiveCoords, user?.username, users])
+
   const markers = useMemo(
     () =>
-      users
+      mapUsers
         // In event focus mode, going members are shown as attendee pins — don't double-draw.
         .filter((u) => !(soloEvent && attendeeUsernames.has(u.username)))
         .map((u) => {
         const isOpen = selected?.username === u.username
         return (
           <Marker
-            key={`${u.username}-${u.lat}-${u.lng}`}
+            key={`${u.username}-${u.lat}-${u.lng}-${u.live ? 'live' : 'fix'}`}
             position={[u.lat, u.lng]}
             icon={markerIcon(u, loggedIn)}
             eventHandlers={{
@@ -715,7 +758,7 @@ export function MapPage() {
         )
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [users, loggedIn, selected?.username, soloEvent, attendeeUsernames],
+    [mapUsers, loggedIn, selected?.username, soloEvent, attendeeUsernames],
   )
 
   const eventMarkers = useMemo(() => {
@@ -821,7 +864,7 @@ export function MapPage() {
                       [evLat, evLng],
                     ]}
                     pathOptions={{
-                      color: m.live ? '#22c55e' : '#ef4444',
+                      color: m.online ? '#22c55e' : '#ef4444',
                       weight: 3.5,
                       opacity: 0.95,
                       dashArray: '10 7',
@@ -840,7 +883,7 @@ export function MapPage() {
               )}
               <Marker
                 position={[m.lat, m.lng]}
-                icon={eventMemberIcon(m.initials, m.live)}
+                icon={eventMemberIcon(m.initials, !!m.online, !!m.live)}
                 zIndexOffset={400}
               >
                 <Popup>
@@ -848,6 +891,7 @@ export function MapPage() {
                     <div className="font-semibold">{m.full_name}</div>
                     <div className="text-xs text-slate-500">
                       @{m.username}
+                      {m.online ? ' · Online' : ' · Offline'}
                       {m.live ? ' · Live location' : ' · Profile location'}
                       {nearVenue ? ' · At venue' : ' · Going'}
                     </div>

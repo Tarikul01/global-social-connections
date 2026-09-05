@@ -112,6 +112,77 @@ body {
   background: #94a3b8;
 }
 
+/* Live location: heartbeat pulse on own / live pins */
+@keyframes disc-heartbeat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  28% {
+    transform: scale(1.1);
+  }
+  42% {
+    transform: scale(1);
+  }
+  58% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes disc-live-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@keyframes disc-dot-beat {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55);
+  }
+  35% {
+    transform: scale(1.3);
+    box-shadow: 0 0 0 6px rgba(74, 222, 128, 0);
+  }
+}
+
+.disc-marker.live {
+  animation: disc-heartbeat 1.35s ease-in-out infinite;
+  box-shadow:
+    0 0 0 3px rgba(34, 197, 94, 0.45),
+    0 3px 12px rgba(5, 8, 22, 0.5);
+  z-index: 6;
+}
+
+.disc-marker.live.me {
+  box-shadow:
+    0 0 0 3px rgba(250, 204, 21, 0.65),
+    0 0 0 7px rgba(34, 197, 94, 0.35),
+    0 3px 12px rgba(5, 8, 22, 0.5);
+}
+
+.disc-marker.live::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 9999px;
+  border: 2px solid rgba(34, 197, 94, 0.65);
+  animation: disc-live-ring 1.35s ease-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.disc-marker.live .dot {
+  background: #4ade80;
+  animation: disc-dot-beat 1.35s ease-in-out infinite;
+}
+
 /* Compact profile tooltip anchored to the map marker */
 .leaflet-popup.fn-user-peek .leaflet-popup-content-wrapper {
   background: #0b1224;
@@ -212,16 +283,25 @@ body {
 }
 
 .disc-marker.event-attendee {
-  border-color: #fca5a5;
-  box-shadow: 0 3px 10px rgba(185, 28, 28, 0.45);
+  width: 40px;
+  height: 40px;
+  font-size: 12px;
 }
 
 .disc-marker.event-attendee.online {
-  background: #dc2626;
+  background: #22c55e;
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35), 0 3px 10px rgba(5, 8, 22, 0.45);
 }
 
 .disc-marker.event-attendee.offline {
-  background: #9f1239;
+  background: #ef4444;
+  border-color: #fecaca;
+  box-shadow: 0 3px 10px rgba(185, 28, 28, 0.45);
+}
+
+.disc-marker.event-attendee.live {
+  border-color: #fff;
 }
 
 /* Event type pins on discover map */

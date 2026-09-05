@@ -141,6 +141,7 @@ type EventMapMember struct {
 	Initials string    `json:"initials"`
 	Latitude float64   `json:"lat"`
 	Longitude float64  `json:"lng"`
+	Online   bool      `json:"online"`
 	Live     bool      `json:"live"`
 }
 
@@ -441,7 +442,8 @@ func (r *Repository) ListAcceptedMembersWithLocations(ctx context.Context, event
 				  AND ls.live_sharing_enabled = true
 				  AND ll.updated_at > now() - interval '10 minutes'
 				  AND (ll.event_id IS NULL OR ll.event_id = $1)
-			) AS is_live
+			) AS is_live,
+			(u.last_seen_at IS NOT NULL AND u.last_seen_at > now() - interval '90 seconds') AS is_online
 		FROM event_members em
 		JOIN users u ON u.id = em.user_id
 		LEFT JOIN profiles p ON p.user_id = u.id
@@ -459,7 +461,7 @@ func (r *Repository) ListAcceptedMembersWithLocations(ctx context.Context, event
 	var list []EventMapMember
 	for rows.Next() {
 		var m EventMapMember
-		if err := rows.Scan(&m.ID, &m.Username, &m.FullName, &m.Role, &m.Latitude, &m.Longitude, &m.Live); err != nil {
+		if err := rows.Scan(&m.ID, &m.Username, &m.FullName, &m.Role, &m.Latitude, &m.Longitude, &m.Live, &m.Online); err != nil {
 			return nil, err
 		}
 		m.Initials = memberInitials(m.FullName)
