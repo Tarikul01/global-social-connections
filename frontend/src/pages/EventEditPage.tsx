@@ -25,7 +25,7 @@ export function EventEditPage() {
   const [forbidden, setForbidden] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [category, setCategory] = useState<EventTypeId>('meetup')
+  const [category, setCategory] = useState<EventTypeId | ''>('meetup')
   const [eventDate, setEventDate] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
