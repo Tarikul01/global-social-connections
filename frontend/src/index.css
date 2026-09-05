@@ -111,3 +111,106 @@ body {
 .disc-marker.offline .dot {
   background: #94a3b8;
 }
+
+/* Compact profile tooltip anchored to the map marker */
+.leaflet-popup.fn-user-peek .leaflet-popup-content-wrapper {
+  background: #0b1224;
+  color: #fff;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 28px rgba(5, 8, 22, 0.55);
+  padding: 0;
+}
+
+.leaflet-popup.fn-user-peek .leaflet-popup-content {
+  margin: 0;
+  min-width: 0;
+  width: 148px;
+}
+
+.leaflet-popup.fn-user-peek .leaflet-popup-tip {
+  background: #0b1224;
+  border: none;
+  box-shadow: none;
+}
+
+.leaflet-popup.fn-user-peek a.leaflet-popup-close-button {
+  color: #94a3b8;
+  font-size: 16px;
+  padding: 4px 6px 0 0;
+  width: 22px;
+  height: 22px;
+}
+
+.leaflet-popup.fn-user-peek a.leaflet-popup-close-button:hover {
+  color: #fff;
+}
+
+.fn-peek-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 14px 12px 12px;
+  gap: 2px;
+}
+
+.fn-peek-card__avatar {
+  margin-bottom: 8px;
+}
+
+.fn-peek-card__name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fn-peek-card__you {
+  font-weight: 600;
+  color: #facc15;
+  font-size: 11px;
+}
+
+.fn-peek-card__meta {
+  font-size: 11px;
+  color: #94a3b8;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fn-peek-card__status {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #64748b;
+}
+
+.fn-peek-card__status .is-online {
+  color: #34d399;
+}
+
+.fn-peek-card__status .is-live {
+  color: #fca5a5;
+}
+
+.fn-peek-card__btn {
+  margin-top: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 9999px;
+  background: #facc15;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.fn-peek-card__btn:hover {
+  background: #fde047;
+}

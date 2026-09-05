@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { Filter, LocateFixed, MapPin, Menu, Minus, Plus, Radio, Users, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
@@ -380,21 +380,40 @@ export function MapPage() {
   const openPerson = (u: NearbyUser) => {
     if (!u.username) return
     setSelected(u)
-    // Keep the people list open on desktop; peek sits above the map.
   }
 
   const markers = useMemo(
     () =>
-      users.map((u) => (
-        <Marker
-          key={`${u.username}-${u.lat}-${u.lng}`}
-          position={[u.lat, u.lng]}
-          icon={markerIcon(u, loggedIn)}
-          eventHandlers={{ click: () => openPerson(u) }}
-        />
-      )),
+      users.map((u) => {
+        const isOpen = selected?.username === u.username
+        return (
+          <Marker
+            key={`${u.username}-${u.lat}-${u.lng}`}
+            position={[u.lat, u.lng]}
+            icon={markerIcon(u, loggedIn)}
+            eventHandlers={{
+              click: () => openPerson(u),
+            }}
+          >
+            {isOpen && (
+              <Popup
+                className="fn-user-peek"
+                offset={[0, -8]}
+                closeButton
+                autoPan
+                autoPanPadding={[48, 48]}
+                eventHandlers={{
+                  remove: () => setSelected(null),
+                }}
+              >
+                <MapUserPeek user={u} loggedIn={loggedIn} />
+              </Popup>
+            )}
+          </Marker>
+        )
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [users, loggedIn],
+    [users, loggedIn, selected?.username],
   )
 
   return (
@@ -522,14 +541,6 @@ export function MapPage() {
         />
         {markers}
       </MapContainer>
-
-      {selected && (
-        <MapUserPeek
-          user={selected}
-          loggedIn={loggedIn}
-          onClose={() => setSelected(null)}
-        />
-      )}
 
       <aside
         className={`absolute right-0 top-0 z-[1000] flex h-full w-[min(100%,22rem)] flex-col border-l border-white/10 bg-[#0b1224]/95 backdrop-blur transition ${
