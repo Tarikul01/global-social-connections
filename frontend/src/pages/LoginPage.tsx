@@ -12,7 +12,9 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
 
   if (!loading && user) {
-    return <Navigate to={params.get('next') || '/'} replace />
+    const next = params.get('next')
+    if (next) return <Navigate to={next} replace />
+    return <Navigate to={user.onboarding_completed ? '/' : '/onboarding'} replace />
   }
 
   async function onSubmit(e: FormEvent) {
@@ -20,8 +22,13 @@ export function LoginPage() {
     setError('')
     setBusy(true)
     try {
-      await login(email, password)
-      navigate(params.get('next') || '/')
+      const u = await login(email, password)
+      const next = params.get('next')
+      if (next) {
+        navigate(next)
+      } else {
+        navigate(u.onboarding_completed ? '/' : '/onboarding')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

@@ -15,7 +15,7 @@ export function RegisterPage() {
   const [busy, setBusy] = useState(false)
 
   if (!loading && user) {
-    return <Navigate to="/" replace />
+    return <Navigate to={user.onboarding_completed ? '/' : '/onboarding'} replace />
   }
 
   async function onSubmit(e: FormEvent) {
@@ -24,7 +24,7 @@ export function RegisterPage() {
     setBusy(true)
     try {
       await register(form)
-      navigate('/')
+      navigate('/onboarding', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {

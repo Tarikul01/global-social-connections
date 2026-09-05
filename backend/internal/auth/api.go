@@ -127,10 +127,14 @@ func (ctrl *Controller) RegisterJSON(c *gin.Context) {
 	}
 	ctrl.setSessionCookie(c, sessToken)
 	user.OnboardingCompleted = false
+	csrf := ""
+	if _, sess, err := ctrl.svc.ValidateSession(c.Request.Context(), sessToken); err == nil && sess != nil {
+		csrf = security.GenerateCSRFToken(ctrl.cfg.CSRFSecret, sess.ID.String())
+	}
 	ctrl.notifyMap()
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
-		"data":    ctrl.userPayload(user, ""),
+		"data":    ctrl.userPayload(user, csrf),
 	})
 }
 

@@ -9,9 +9,12 @@ type Profile = {
   full_name: string
   profession?: string
   bio?: string
+  about?: string
   photo_url?: string
   company?: string
   job_title?: string
+  followers?: number
+  following?: number
 }
 
 export function ProfilePage() {
@@ -107,6 +110,11 @@ export function ProfilePage() {
             <h1 className="text-xl font-bold">{profile.full_name || profile.username}</h1>
             <p className="text-slate-400">@{profile.username}</p>
             <p className="text-sm text-yellow-200">{profile.profession || 'Professional'}</p>
+            {(typeof profile.followers === 'number' || typeof profile.following === 'number') && (
+              <p className="mt-1 text-xs text-slate-400">
+                {profile.followers ?? 0} followers · {profile.following ?? 0} following
+              </p>
+            )}
           </div>
         </div>
         {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
@@ -115,6 +123,7 @@ export function ProfilePage() {
             {[profile.job_title, profile.company].filter(Boolean).join(' · ')}
           </p>
         )}
+        {profile.about && <p className="mt-3 text-sm leading-relaxed text-slate-300">{profile.about}</p>}
         {profile.bio && <p className="mt-3 text-sm leading-relaxed text-slate-300">{profile.bio}</p>}
       </div>
     </div>

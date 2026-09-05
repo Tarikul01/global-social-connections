@@ -12,13 +12,13 @@ import { api, setCsrfToken, type AuthUser } from '../lib/api'
 type AuthState = {
   user: AuthUser | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<AuthUser>
   register: (input: {
     email: string
     username: string
     password: string
     full_name: string
-  }) => Promise<void>
+  }) => Promise<AuthUser>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
       })
       applyUser(res.data)
+      return res.data
     },
     [applyUser],
   )
@@ -75,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }) => {
       const res = await api.post<{ success: boolean; data: AuthUser }>('/api/v1/auth/register', input)
       applyUser(res.data)
+      return res.data
     },
     [applyUser],
   )

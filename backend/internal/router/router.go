@@ -112,6 +112,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 		api.GET("/users/:id", d.UserCtrl.GetByIDJSON)
 		api.GET("/professions", d.UserCtrl.ListProfessionsJSON)
 		api.GET("/stats", d.UserCtrl.StatsJSON)
+		api.GET("/profiles/:username", d.ProfileCtrl.PublicProfileJSON)
 		if d.StorageSvc != nil {
 			api.GET("/media/*filepath", d.StorageSvc.ServeMedia)
 		}
@@ -129,8 +130,8 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.GET("/me", d.AuthCtrl.MeJSON)
 			protected.GET("/me/profile", d.ProfileCtrl.MeProfileJSON)
 			protected.POST("/me/photo", d.ProfileCtrl.UploadPhotoJSON)
-			protected.GET("/profiles/:username", d.ProfileCtrl.PublicProfileJSON)
-
+			protected.GET("/me/onboarding", d.ProfileCtrl.OnboardingJSON)
+			protected.POST("/me/onboarding", d.ProfileCtrl.CompleteOnboardingJSON)
 			protected.POST("/me/location", d.LocCtrl.UpdateLocationJSON)
 			protected.POST("/live-location", d.LocCtrl.UpdateLiveLocation)
 			protected.POST("/live-location/start", d.LocCtrl.StartLiveLocation)

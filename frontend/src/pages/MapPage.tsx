@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { Filter, LocateFixed, MapPin, Menu, Minus, Plus, Radio, Users, X } from 'lucide-react'
@@ -9,6 +9,7 @@ import { SideNav } from '../components/SideNav'
 import { Recenter } from '../components/Recenter'
 import { useMapSocket } from '../hooks/useMapSocket'
 import { UserAvatar } from '../components/UserAvatar'
+import { MapUserPeek } from '../components/MapUserPeek'
 import { userShortform } from '../lib/avatar'
 
 function markerIcon(u: NearbyUser, loggedIn: boolean) {
@@ -155,10 +156,10 @@ function MapControls({
 
 export function MapPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const loggedIn = !!user
   const [navOpen, setNavOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [selected, setSelected] = useState<NearbyUser | null>(null)
   const [users, setUsers] = useState<NearbyUser[]>([])
   const [total, setTotal] = useState(0)
   const [online, setOnline] = useState(0)
@@ -378,8 +379,8 @@ export function MapPage() {
 
   const openPerson = (u: NearbyUser) => {
     if (!u.username) return
-    if (loggedIn) navigate(`/u/${u.username}`)
-    else navigate(`/login?next=${encodeURIComponent(`/u/${u.username}`)}`)
+    setSelected(u)
+    // Keep the people list open on desktop; peek sits above the map.
   }
 
   const markers = useMemo(
@@ -521,6 +522,14 @@ export function MapPage() {
         />
         {markers}
       </MapContainer>
+
+      {selected && (
+        <MapUserPeek
+          user={selected}
+          loggedIn={loggedIn}
+          onClose={() => setSelected(null)}
+        />
+      )}
 
       <aside
         className={`absolute right-0 top-0 z-[1000] flex h-full w-[min(100%,22rem)] flex-col border-l border-white/10 bg-[#0b1224]/95 backdrop-blur transition ${

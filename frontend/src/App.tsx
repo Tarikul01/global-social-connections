@@ -7,6 +7,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { EventsPage } from './pages/EventsPage'
 import { EventCreatePage } from './pages/EventCreatePage'
 import { EventDetailPage } from './pages/EventDetailPage'
+import { OnboardingPage } from './pages/OnboardingPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -17,7 +18,21 @@ function Protected({ children }: { children: React.ReactNode }) {
     )
   }
   if (!user) return <Navigate to="/login" replace />
+  if (!user.onboarding_completed) return <Navigate to="/onboarding" replace />
   return children
+}
+
+function GuestOrMap() {
+  const { user, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center text-slate-400">Loading…</div>
+    )
+  }
+  if (user && !user.onboarding_completed) {
+    return <Navigate to="/onboarding" replace />
+  }
+  return <MapPage />
 }
 
 export default function App() {
@@ -25,9 +40,10 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<MapPage />} />
+          <Route path="/" element={<GuestOrMap />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/u/:username" element={<ProfilePage />} />
           <Route
             path="/profile"
