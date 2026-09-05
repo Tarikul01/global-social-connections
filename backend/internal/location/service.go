@@ -237,12 +237,19 @@ func (s *Service) StartLive(ctx context.Context, userID uuid.UUID, lat, lng floa
 		return err
 	}
 	if lat != 0 || lng != 0 {
+		// Permanent fuzzed pin is required for discoverability (USERS count + nearby).
+		_ = s.UpdateLocation(ctx, userID, lat, lng, "", "", "")
 		return s.UpdateLiveLocation(ctx, userID, nil, lat, lng)
 	}
 	return nil
 }
 
 func (s *Service) UpdateLive(ctx context.Context, userID uuid.UUID, lat, lng float64) error {
+	if lat != 0 || lng != 0 {
+		if _, _, _, ok, _ := s.GetPermanentLocation(ctx, userID); !ok {
+			_ = s.UpdateLocation(ctx, userID, lat, lng, "", "", "")
+		}
+	}
 	return s.UpdateLiveLocation(ctx, userID, nil, lat, lng)
 }
 

@@ -263,7 +263,57 @@ export function MapPage() {
         }
       })
       .catch(() => {})
+
+    // Save GPS pin + enable discovery so the user counts toward USERS / appears on map.
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        void api
+          .post('/api/v1/me/location', {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          })
+          .then(() => {
+            setCenter([pos.coords.latitude, pos.coords.longitude])
+            setZoom(14)
+            setViewTick((t) => t + 1)
+          })
+          .catch(() => {})
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 },
+    )
   }, [user])
+
+  // HTTP fallback when WebSocket is down (or slow to connect).
+  useEffect(() => {
+    if (!mapReady || socketOk) return
+    const load = () => {
+      const params = new URLSearchParams({
+        lat: String(center[0]),
+        lng: String(center[1]),
+        radius_km: String(zoomToRadius(zoom)),
+      })
+      if (status) params.set('status', status)
+      if (search.trim()) params.set('q', search.trim())
+      for (const p of selectedProfessions) params.append('professions', p)
+      void api
+        .get<{
+          success: boolean
+          data: { users?: NearbyUser[]; total?: number; online?: number; live?: boolean }
+        }>(`/api/v1/users/nearby?${params}`)
+        .then((r) => {
+          setUsers(r.data?.users || [])
+          setTotal(r.data?.total || 0)
+          setOnline(r.data?.online || 0)
+          if (typeof r.data?.live === 'boolean') setLiveOn(r.data.live)
+        })
+        .catch(() => {})
+    }
+    load()
+    const id = window.setInterval(load, 8000)
+    return () => window.clearInterval(id)
+  }, [mapReady, socketOk, center, zoom, status, search, selectedProfessions])
 
   useEffect(() => {
     if (!user) {

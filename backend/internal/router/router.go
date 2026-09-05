@@ -131,6 +131,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.POST("/me/photo", d.ProfileCtrl.UploadPhotoJSON)
 			protected.GET("/profiles/:username", d.ProfileCtrl.PublicProfileJSON)
 
+			protected.POST("/me/location", d.LocCtrl.UpdateLocationJSON)
 			protected.POST("/live-location", d.LocCtrl.UpdateLiveLocation)
 			protected.POST("/live-location/start", d.LocCtrl.StartLiveLocation)
 			protected.GET("/live-location/status", d.LocCtrl.LiveStatus)

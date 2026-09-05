@@ -90,6 +90,10 @@ func (h *Hub) SetLiveHandler(live LiveLocationHandler) {
 }
 
 func (h *Hub) Run() {
+	// Periodic refresh so session-based online/offline updates without Redis.
+	ticker := time.NewTicker(12 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case c := <-h.register:
@@ -126,6 +130,9 @@ func (h *Hub) Run() {
 			if changed {
 				h.BroadcastMapChanged()
 			}
+
+		case <-ticker.C:
+			h.RefreshAll()
 		}
 	}
 }

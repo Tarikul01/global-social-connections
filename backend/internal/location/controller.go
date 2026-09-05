@@ -75,20 +75,53 @@ func (ctrl *Controller) UpdateLocation(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-	lat, _ := strconv.ParseFloat(c.PostForm("lat"), 64)
-	lng, _ := strconv.ParseFloat(c.PostForm("lng"), 64)
-	if err := ctrl.svc.UpdateLocation(c.Request.Context(), u.ID, lat, lng, c.PostForm("city"), c.PostForm("region"), c.PostForm("country")); err != nil {
+	lat, lng, city, region, country := parseLocationBody(c)
+	if err := ctrl.svc.UpdateLocation(c.Request.Context(), u.ID, lat, lng, city, region, country); err != nil {
 		c.JSON(500, gin.H{"error": "failed"})
 		return
 	}
 	// Auto-enable discovery when user saves location
 	settings, _ := ctrl.svc.GetSettings(c.Request.Context(), u.ID)
 	settings.DiscoveryEnabled = true
+	settings.ShowOnMap = true
 	if settings.SharingMode == "hidden" {
 		settings.SharingMode = "discoverable"
 	}
 	_ = ctrl.svc.UpdateSettings(c.Request.Context(), u.ID, *settings)
-	c.JSON(200, gin.H{"ok": true})
+	ctrl.notifyMap()
+	c.JSON(200, gin.H{"ok": true, "success": true})
+}
+
+// UpdateLocationJSON is POST /api/v1/me/location — SPA onboarding / map auto-pin.
+func (ctrl *Controller) UpdateLocationJSON(c *gin.Context) {
+	ctrl.UpdateLocation(c)
+}
+
+func parseLocationBody(c *gin.Context) (lat, lng float64, city, region, country string) {
+	var body struct {
+		Lat     float64 `json:"lat" form:"lat"`
+		Lng     float64 `json:"lng" form:"lng"`
+		City    string  `json:"city" form:"city"`
+		Region  string  `json:"region" form:"region"`
+		Country string  `json:"country" form:"country"`
+	}
+	_ = c.ShouldBind(&body)
+	lat, lng = body.Lat, body.Lng
+	city, region, country = body.City, body.Region, body.Country
+	if lat == 0 && lng == 0 {
+		lat, _ = strconv.ParseFloat(c.PostForm("lat"), 64)
+		lng, _ = strconv.ParseFloat(c.PostForm("lng"), 64)
+	}
+	if city == "" {
+		city = c.PostForm("city")
+	}
+	if region == "" {
+		region = c.PostForm("region")
+	}
+	if country == "" {
+		country = c.PostForm("country")
+	}
+	return
 }
 
 func (ctrl *Controller) UpdateLiveLocation(c *gin.Context) {
@@ -120,13 +153,10 @@ func (ctrl *Controller) StartLiveLocation(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
-	if err := ctrl.svc.EnableLiveSharing(c.Request.Context(), u.ID); err != nil {
+	lat, lng, _ := parseLatLngEvent(c)
+	if err := ctrl.svc.StartLive(c.Request.Context(), u.ID, lat, lng); err != nil {
 		c.JSON(500, gin.H{"error": "failed to enable live location"})
 		return
-	}
-	lat, lng, _ := parseLatLngEvent(c)
-	if lat != 0 || lng != 0 {
-		_ = ctrl.svc.UpdateLiveLocation(c.Request.Context(), u.ID, nil, lat, lng)
 	}
 	ctrl.notifyMap()
 	c.JSON(200, gin.H{"ok": true, "live": true})

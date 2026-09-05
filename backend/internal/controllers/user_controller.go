@@ -89,7 +89,10 @@ func (ctrl *UserController) GetNearbyJSON(c *gin.Context) {
 		viewerID = u.ID
 	}
 
-	professions := c.QueryArray("profession")
+	professions := c.QueryArray("professions")
+	if len(professions) == 0 {
+		professions = c.QueryArray("profession")
+	}
 	if len(professions) == 0 && c.Query("profession") != "" {
 		professions = []string{c.Query("profession")}
 	}
@@ -122,7 +125,7 @@ type NearbyQuery struct {
 }
 
 // NearbyPayload builds the same payload used by REST and the realtime hub.
-// Online status comes from live WebSocket presence (not stale DB sessions).
+// Online = active session (DB) OR WebSocket presence on this instance.
 func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUID, q NearbyQuery) (gin.H, error) {
 	onlineOnly := q.Status == "online"
 	offlineOnly := q.Status == "offline"
@@ -161,11 +164,14 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 		}
 	}
 
-	// Overlay realtime presence (WebSocket connections).
+	// Online = active login session (DB, works across Vercel instances).
+	// WebSocket presence can only ADD online (same-instance map viewers).
 	if ctrl.presence != nil {
 		out := users[:0]
 		for _, u := range users {
-			u.Online = ctrl.presence.IsOnline(u.ID)
+			if ctrl.presence.IsOnline(u.ID) {
+				u.Online = true
+			}
 			if onlineOnly && !u.Online {
 				continue
 			}
@@ -178,9 +184,12 @@ func (ctrl *UserController) NearbyPayload(ctx context.Context, viewerID uuid.UUI
 	}
 
 	total, sessionOnline, _ := ctrl.users.CountDiscoverable(ctx)
+	// Prefer session count so ONLINE is correct when map sockets land on different instances.
 	online := sessionOnline
 	if ctrl.presence != nil {
-		online = ctrl.presence.OnlineCount()
+		if n := ctrl.presence.OnlineCount(); n > online {
+			online = n
+		}
 	}
 
 	payload := gin.H{
@@ -248,7 +257,9 @@ func (ctrl *UserController) StatsJSON(c *gin.Context) {
 		return
 	}
 	if ctrl.presence != nil {
-		online = ctrl.presence.OnlineCount()
+		if n := ctrl.presence.OnlineCount(); n > online {
+			online = n
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
