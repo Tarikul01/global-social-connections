@@ -93,9 +93,14 @@ func (ctrl *Controller) eventShareURL(id uuid.UUID) string {
 	return base + "/e/" + id.String()
 }
 
-// ListJSON returns published events for the discover list.
+// ListJSON returns published events visible to the current user.
+// Public events are listed for everyone; private only for creator / accepted members.
 func (ctrl *Controller) ListJSON(c *gin.Context) {
-	list, err := ctrl.svc.List(c.Request.Context())
+	var viewerID uuid.UUID
+	if u, ok := auth.CurrentUser(c); ok {
+		viewerID = u.ID
+	}
+	list, err := ctrl.svc.List(c.Request.Context(), viewerID)
 	if err != nil {
 		ctrl.log.Error("list events failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "failed to load events"})

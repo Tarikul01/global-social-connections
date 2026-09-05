@@ -342,20 +342,52 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Event, error) 
 }
 
 func (r *Repository) List(ctx context.Context, limit int) ([]Event, error) {
+	return r.ListForViewer(ctx, uuid.Nil, limit)
+}
+
+// ListForViewer returns published events the viewer may see on discover:
+// all public events, plus private events where they are creator or accepted member.
+func (r *Repository) ListForViewer(ctx context.Context, viewerID uuid.UUID, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := r.pool.Query(ctx, `
+	const cols = `
 		SELECT e.id, e.creator_id, e.title, COALESCE(e.description,''), COALESCE(e.category,''),
 			e.event_date, e.start_time::text, COALESCE(e.end_time::text,''), e.location_name,
 			COALESCE(ST_Y(e.geom::geometry), 0), COALESCE(ST_X(e.geom::geometry), 0),
 			e.max_participants, e.visibility, e.status, e.live_location_enabled,
 			(SELECT COUNT(*) FROM event_members em WHERE em.event_id = e.id)
-		FROM events e
-		WHERE e.status = 'published'
-		ORDER BY e.event_date ASC
-		LIMIT $1
-	`, limit)
+		FROM events e`
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if viewerID == uuid.Nil {
+		rows, err = r.pool.Query(ctx, cols+`
+			WHERE e.status = 'published' AND e.visibility = 'public'
+			ORDER BY e.event_date ASC
+			LIMIT $1
+		`, limit)
+	} else {
+		rows, err = r.pool.Query(ctx, cols+`
+			WHERE e.status = 'published'
+			  AND (
+				e.visibility = 'public'
+				OR (
+					e.visibility = 'private'
+					AND (
+						e.creator_id = $2
+						OR EXISTS (
+							SELECT 1 FROM event_members em
+							WHERE em.event_id = e.id AND em.user_id = $2
+						)
+					)
+				)
+			  )
+			ORDER BY e.event_date ASC
+			LIMIT $1
+		`, limit, viewerID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1062,8 +1094,8 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Event, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *Service) List(ctx context.Context) ([]Event, error) {
-	return s.repo.List(ctx, 50)
+func (s *Service) List(ctx context.Context, viewerID uuid.UUID) ([]Event, error) {
+	return s.repo.ListForViewer(ctx, viewerID, 50)
 }
 
 func (s *Service) ListHosted(ctx context.Context, userID uuid.UUID) ([]HostedEventSummary, error) {

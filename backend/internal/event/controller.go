@@ -33,7 +33,11 @@ func NewController(svc *Service, auth *auth.Service, notif *notification.Service
 }
 
 func (ctrl *Controller) List(c *gin.Context) {
-	events, _ := ctrl.svc.List(c.Request.Context())
+	var viewerID uuid.UUID
+	if u, ok := auth.CurrentUser(c); ok {
+		viewerID = u.ID
+	}
+	events, _ := ctrl.svc.List(c.Request.Context(), viewerID)
 	view.Render(c, ctrl.tmpl, ctrl.cfg, "events/list.html", gin.H{"Title": "Events", "Events": events})
 }
 

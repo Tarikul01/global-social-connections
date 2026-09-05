@@ -248,6 +248,8 @@ export function MapPage() {
   } | null>(null)
   const [mapEvents, setMapEvents] = useState<EventSummary[]>([])
   const [eventMembers, setEventMembers] = useState<EventMapMember[]>([])
+  /** Direction lines + going pins: only for event creator / accepted participants. */
+  const [canSeeDirections, setCanSeeDirections] = useState(false)
   const [routeTick, setRouteTick] = useState(0)
   const focusAppliedRef = useRef(false)
   const [socketOk, setSocketOk] = useState(false)
@@ -365,17 +367,34 @@ export function MapPage() {
     focusAppliedRef.current = true
   }, [searchParams])
 
-  // Resolve missing type/label from event API (older events may lack ?type=)
+  // Resolve event metadata + block private deep-links for outsiders
   useEffect(() => {
     const id = eventFocus?.id
     if (!id) return
-    if (eventFocus.type && eventFocus.label) return
     let cancelled = false
     void api
-      .get<{ success: boolean; data: EventDetail }>(`/api/v1/events/${id}`)
+      .get<{
+        success: boolean
+        data: EventDetail & { private?: boolean }
+      }>(`/api/v1/events/${id}`)
       .then((r) => {
-        if (cancelled || !r.data?.event) return
-        const e = r.data.event
+        if (cancelled || !r.data) return
+        const d = r.data
+        const e = d.event
+        // Private event: map pin/directions only for creator / accepted members
+        if (
+          (d.private || e?.visibility === 'private') &&
+          !d.is_host &&
+          !d.is_member &&
+          !d.is_creator
+        ) {
+          setEventFocus(null)
+          setSoloEvent(false)
+          setEventMembers([])
+          setCanSeeDirections(false)
+          return
+        }
+        if (!e) return
         const type = resolveEventCategory(e.category, e.title) || undefined
         setEventFocus((prev) => {
           if (!prev || prev.id !== id) return prev
@@ -392,13 +411,14 @@ export function MapPage() {
     return () => {
       cancelled = true
     }
-  }, [eventFocus?.id, eventFocus?.type, eventFocus?.label])
+  }, [eventFocus?.id])
 
-  // Going members once when focusing an event (live positions come from socket + GPS)
+  // Going members + directions only for host / accepted participants
   useEffect(() => {
     const id = eventFocus?.id
     if (!id || !soloEvent || !loggedIn) {
       setEventMembers([])
+      setCanSeeDirections(false)
       return
     }
     let cancelled = false
@@ -417,6 +437,7 @@ export function MapPage() {
             Number.isFinite(m.lng),
         )
         setEventMembers(members)
+        setCanSeeDirections(true)
         if (r.data?.event?.lat != null && r.data?.event?.lng != null) {
           setEventFocus((prev) =>
             prev && prev.id === id
@@ -426,14 +447,17 @@ export function MapPage() {
         }
       })
       .catch(() => {
-        if (!cancelled) setEventMembers([])
+        if (!cancelled) {
+          setEventMembers([])
+          setCanSeeDirections(false)
+        }
       })
     return () => {
       cancelled = true
     }
   }, [eventFocus?.id, soloEvent, loggedIn])
 
-  // Plot published events with coordinates on the discover map
+  // Plot events visible to this user (API already hides private from outsiders)
   useEffect(() => {
     if (!loggedIn) {
       setMapEvents([])
@@ -589,46 +613,22 @@ export function MapPage() {
     setSelected(u)
   }
 
-  const publicEvents = useMemo(() => {
-    const byId = new Map<string, EventSummary>()
-    for (const e of mapEvents) {
-      if (e.visibility === 'private') continue
-      byId.set(e.id, e)
-    }
-    // Keep focused event visible in the count/list even if list API lagged.
-    if (eventFocus?.id && hasEventCoords(eventFocus)) {
-      const existing = byId.get(eventFocus.id)
-      if (!existing) {
-        byId.set(eventFocus.id, {
-          id: eventFocus.id,
-          creator_id: '',
-          title: eventFocus.label || 'Event',
-          category: eventFocus.type,
-          event_date: '',
-          location_name: '',
-          lat: eventFocus.lat,
-          lng: eventFocus.lng,
-          visibility: 'public',
-          member_count: 0,
-        })
-      }
-    }
-    return Array.from(byId.values())
-  }, [mapEvents, eventFocus])
+  // API already returns public + private-only-if-member; show those on the map.
+  const visibleEvents = useMemo(() => mapEvents, [mapEvents])
 
-  const mappablePublicEvents = useMemo(
-    () => publicEvents.filter(hasEventCoords),
-    [publicEvents],
+  const mappableEvents = useMemo(
+    () => visibleEvents.filter(hasEventCoords),
+    [visibleEvents],
   )
 
   const eventsByCategory = useMemo(() => {
     return EVENT_TYPES.map((t) => ({
       ...t,
-      events: mappablePublicEvents.filter(
+      events: mappableEvents.filter(
         (e) => resolveEventCategory(e.category, e.title) === t.id,
       ),
     })).filter((g) => g.events.length > 0)
-  }, [mappablePublicEvents])
+  }, [mappableEvents])
 
   const focusEventOnMap = (ev: EventSummary) => {
     if (!hasEventCoords(ev)) return
@@ -652,10 +652,12 @@ export function MapPage() {
     setEventFocus(null)
     setSoloEvent(false)
     setEventMembers([])
+    setCanSeeDirections(false)
     setEventsOpen(false)
   }
 
   const routeAttendees = useMemo(() => {
+    if (!canSeeDirections) return []
     return eventMembers.map((m) => {
       const nearby = users.find((u) => u.username === m.username)
       const isMe = !!user?.username && m.username === user.username
@@ -684,7 +686,16 @@ export function MapPage() {
       }
       return { ...m, online }
     })
-  }, [eventMembers, liveOn, loggedIn, myLiveCoords, socketOk, user?.username, users])
+  }, [
+    canSeeDirections,
+    eventMembers,
+    liveOn,
+    loggedIn,
+    myLiveCoords,
+    socketOk,
+    user?.username,
+    users,
+  ])
 
   const routeBounds = useMemo((): [number, number][] => {
     if (!eventFocus || !soloEvent) return []
@@ -835,7 +846,7 @@ export function MapPage() {
   }, [mapEvents, eventFocus, soloEvent])
 
   const attendeeLayers = useMemo(() => {
-    if (!soloEvent || !eventFocus || routeAttendees.length === 0) return null
+    if (!canSeeDirections || !soloEvent || !eventFocus || routeAttendees.length === 0) return null
     const evLat = eventFocus.lat
     const evLng = eventFocus.lng
     return (
@@ -912,7 +923,7 @@ export function MapPage() {
         })}
       </>
     )
-  }, [soloEvent, eventFocus, routeAttendees])
+  }, [canSeeDirections, soloEvent, eventFocus, routeAttendees])
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -942,7 +953,7 @@ export function MapPage() {
         >
           <CalendarDays size={12} /> Events
           <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-slate-900">
-            {publicEvents.length}
+            {visibleEvents.length}
           </span>
         </button>
         <button
@@ -982,8 +993,8 @@ export function MapPage() {
               </button>
             )}
           </div>
-          {mappablePublicEvents.length === 0 ? (
-            <p className="px-1 py-3 text-sm text-slate-400">No public events with a location yet.</p>
+          {mappableEvents.length === 0 ? (
+            <p className="px-1 py-3 text-sm text-slate-400">No events with a location yet.</p>
           ) : (
             <div className="max-h-72 space-y-3 overflow-y-auto">
               {eventsByCategory.map((group) => {
@@ -1021,6 +1032,7 @@ export function MapPage() {
                             <span className="min-w-0 flex-1">
                               <span className="block truncate font-medium text-white">{ev.title}</span>
                               <span className="block truncate text-xs text-slate-400">
+                                {ev.visibility === 'private' ? 'Private · ' : ''}
                                 {ev.location_name || 'On map'}
                                 {ev.event_date_label || ev.event_date
                                   ? ` · ${ev.event_date_label || ev.event_date}`
@@ -1034,13 +1046,13 @@ export function MapPage() {
                   </div>
                 )
               })}
-              {mappablePublicEvents.filter((e) => !resolveEventCategory(e.category, e.title))
+              {mappableEvents.filter((e) => !resolveEventCategory(e.category, e.title))
                 .length > 0 && (
                 <div>
                   <div className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                     Other
                   </div>
-                  {mappablePublicEvents
+                  {mappableEvents
                     .filter((e) => !resolveEventCategory(e.category, e.title))
                     .map((ev) => (
                       <button
