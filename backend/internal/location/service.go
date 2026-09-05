@@ -237,8 +237,11 @@ func (s *Service) StartLive(ctx context.Context, userID uuid.UUID, lat, lng floa
 		return err
 	}
 	if lat != 0 || lng != 0 {
-		// Permanent fuzzed pin is required for discoverability (USERS count + nearby).
-		_ = s.UpdateLocation(ctx, userID, lat, lng, "", "", "")
+		// Never overwrite the profile/fixed pin with live GPS.
+		// Only seed a permanent location if the user has none (needed for discovery).
+		if _, _, _, ok, _ := s.GetPermanentLocation(ctx, userID); !ok {
+			_ = s.UpdateLocation(ctx, userID, lat, lng, "", "", "")
+		}
 		return s.UpdateLiveLocation(ctx, userID, nil, lat, lng)
 	}
 	return nil

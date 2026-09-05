@@ -1,11 +1,14 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { MapPin, Users } from 'lucide-react'
+import { MapPin, Pencil, Share2, Users, X } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../auth/AuthContext'
 import type { EventDetail } from '../lib/events'
 import { EventShareBar, eventShareUrl } from '../components/EventShareBar'
 import { UserInviteSuggest, type SuggestUser } from '../components/UserInviteSuggest'
+import { EventMapPreview } from '../components/EventMapPreview'
+import { EventTypeBadge } from '../components/EventTypeBadge'
+import { resolveEventCategory } from '../lib/eventTypes'
 
 type EventMember = {
   user_id: string
@@ -13,6 +16,21 @@ type EventMember = {
   full_name?: string
   role: string
   is_creator: boolean
+}
+
+type EventInvite = {
+  id: string
+  invitee_id: string
+  username: string
+  full_name?: string
+  email?: string
+  status: string
+}
+
+type PeopleRoster = {
+  going: EventMember[]
+  invited: EventInvite[]
+  is_host?: boolean
 }
 
 export function EventDetailPage() {
@@ -24,11 +42,12 @@ export function EventDetailPage() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [joinMsg, setJoinMsg] = useState('')
-  const [showMembers, setShowMembers] = useState(false)
-  const [members, setMembers] = useState<EventMember[] | null>(null)
-  const [membersError, setMembersError] = useState('')
+  const [showPeople, setShowPeople] = useState(false)
+  const [people, setPeople] = useState<PeopleRoster | null>(null)
+  const [peopleError, setPeopleError] = useState('')
   const [invitePick, setInvitePick] = useState<SuggestUser[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [showShare, setShowShare] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -51,23 +70,27 @@ export function EventDetailPage() {
     }
   }, [load])
 
-  const loadMembers = useCallback(async () => {
+  const loadPeople = useCallback(async () => {
     if (!id) return
-    setMembersError('')
+    setPeopleError('')
     try {
-      const res = await api.get<{ success: boolean; data: EventMember[] }>(
+      const res = await api.get<{ success: boolean; data: PeopleRoster }>(
         `/api/v1/events/${id}/members`,
       )
-      setMembers(res.data || [])
+      setPeople({
+        going: res.data?.going || [],
+        invited: res.data?.invited || [],
+        is_host: res.data?.is_host,
+      })
     } catch (e) {
-      setMembersError(e instanceof Error ? e.message : 'Could not load members')
-      setMembers([])
+      setPeopleError(e instanceof Error ? e.message : 'Could not load people')
+      setPeople({ going: [], invited: [] })
     }
   }, [id])
 
   useEffect(() => {
-    if (showMembers) void loadMembers()
-  }, [showMembers, loadMembers])
+    if (showPeople) void loadPeople()
+  }, [showPeople, loadPeople])
 
   const act = async (fn: () => Promise<unknown>, okMsg: string) => {
     setBusy(true)
@@ -77,7 +100,7 @@ export function EventDetailPage() {
       await fn()
       setMessage(okMsg)
       await load()
-      if (showMembers) await loadMembers()
+      if (showPeople) await loadPeople()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -105,10 +128,20 @@ export function EventDetailPage() {
   const timeRange = [e.start_time, e.end_time].filter(Boolean).join(' – ')
   const shareUrl = detail.share_url || e.share_url || eventShareUrl(e.id)
   const canShare = detail.is_host || detail.is_creator || e.visibility === 'public'
-  const mapHref =
-    e.lat != null && e.lng != null
-      ? `/?lat=${e.lat}&lng=${e.lng}&zoom=15&event=${encodeURIComponent(e.id)}&label=${encodeURIComponent(e.title)}`
-      : null
+  const hasCoords = e.lat != null && e.lng != null && !(e.lat === 0 && e.lng === 0)
+  const mapHref = hasCoords
+    ? `/?lat=${e.lat}&lng=${e.lng}&zoom=15&event=${encodeURIComponent(e.id)}&label=${encodeURIComponent(e.title)}${
+        (() => {
+          const t = resolveEventCategory(e.category, e.title)
+          return t ? `&type=${encodeURIComponent(t)}` : ''
+        })()
+      }`
+    : null
+  const host =
+    detail.hosts?.find((h) => h.is_creator) || detail.hosts?.[0] || null
+  const hostLabel = host
+    ? host.full_name || host.username
+    : null
 
   if (detail.login_required || detail.private) {
     return (
@@ -142,21 +175,71 @@ export function EventDetailPage() {
   return (
     <div className="min-h-full bg-[radial-gradient(900px_500px_at_90%_0%,rgba(250,204,21,0.08),transparent_50%),#050816] px-4 py-8">
       <div className="mx-auto max-w-lg space-y-4 rounded-2xl border border-white/10 bg-[#0b1224] p-6">
-        <Link to="/events" className="text-sm text-blue-300 underline">
-          ← Events
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link to="/events" className="text-sm text-blue-300 underline">
+            ← Events
+          </Link>
+          <div className="flex items-center gap-2">
+            {detail.is_creator && (
+              <Link
+                to={`/events/${e.id}/edit`}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+                title="Edit event"
+                aria-label="Edit event"
+              >
+                <Pencil size={16} />
+              </Link>
+            )}
+            {canShare && (
+              <button
+                type="button"
+                onClick={() => setShowShare((v) => !v)}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                  showShare
+                    ? 'border-yellow-400/50 bg-yellow-400/15 text-yellow-300'
+                    : 'border-white/15 bg-white/5 text-slate-200 hover:bg-white/10'
+                }`}
+                title={showShare ? 'Hide share' : 'Share event'}
+                aria-pressed={showShare}
+                aria-label="Share event"
+              >
+                {showShare ? <X size={16} /> : <Share2 size={16} />}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showShare && canShare && <EventShareBar shareUrl={shareUrl} title={e.title} />}
 
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-bold">{e.title}</h1>
-          <span
-            className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
-              e.visibility === 'private'
-                ? 'border-amber-500/40 text-amber-300'
-                : 'border-blue-500/40 text-blue-300'
-            }`}
-          >
-            {e.visibility === 'private' ? 'Private' : 'Public'}
-          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">{e.title}</h1>
+              <EventTypeBadge category={e.category} />
+              <span
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                  e.visibility === 'private'
+                    ? 'border-amber-500/40 text-amber-300'
+                    : 'border-blue-500/40 text-blue-300'
+                }`}
+              >
+                {e.visibility === 'private' ? 'Private' : 'Public'}
+              </span>
+            </div>
+          </div>
+          {hostLabel && (
+            <div className="max-w-[40%] shrink-0 text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Host
+              </p>
+              <p className="truncate text-sm font-medium text-yellow-300/90" title={hostLabel}>
+                {hostLabel}
+              </p>
+              {host?.username && (
+                <p className="truncate text-xs text-slate-500">@{host.username}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <p className="text-sm text-slate-400">
@@ -167,70 +250,114 @@ export function EventDetailPage() {
 
         {e.description && <p className="text-slate-200">{e.description}</p>}
 
-        <p className="flex flex-wrap gap-4 text-sm text-slate-400">
-          <span className="inline-flex items-center gap-1">
+        {hasCoords ? (
+          <EventMapPreview
+            lat={e.lat!}
+            lng={e.lng!}
+            label={e.location_name || e.title}
+            category={e.category}
+            discoverHref={mapHref}
+          />
+        ) : (
+          <p className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+            <MapPin size={14} /> No map location set
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
+          <span className="inline-flex items-center gap-1.5">
             <Users size={14} /> {e.member_count ?? 0}
             {e.max_participants ? ` / ${e.max_participants}` : ''} going
           </span>
-          {e.location_name && (
-            <span className="inline-flex items-center gap-1">
-              <MapPin size={14} /> {e.location_name}
-            </span>
-          )}
-        </p>
-
-        <div className="flex flex-wrap gap-2">
-          {mapHref ? (
-            <Link
-              to={mapHref}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-200 hover:bg-blue-500/20"
-            >
-              <MapPin size={14} /> Discover event on map
-            </Link>
-          ) : (
-            <span className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-500">
-              No map location set
-            </span>
-          )}
           <button
             type="button"
-            onClick={() => setShowMembers((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-white/10"
+            onClick={() => setShowPeople((v) => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              showPeople
+                ? 'border-yellow-400/40 bg-yellow-400/10 text-yellow-200'
+                : 'border-white/15 bg-white/5 text-slate-200 hover:bg-white/10'
+            }`}
           >
-            <Users size={14} /> {showMembers ? 'Hide user list' : 'Show user list'}
+            <Users size={12} />
+            {showPeople ? 'Hide list' : 'People'}
           </button>
         </div>
 
-        {showMembers && (
-          <section className="space-y-2 rounded-xl border border-white/10 bg-[#111827] p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Going ({members?.length ?? '…'})
-            </h2>
-            {membersError && <p className="text-sm text-red-300">{membersError}</p>}
-            {!members && !membersError && (
-              <p className="text-sm text-slate-500">Loading…</p>
+        {showPeople && (
+          <section className="space-y-3 rounded-xl border border-white/10 bg-[#111827] p-3">
+            {detail.is_host && (
+              <div className="space-y-1.5 border-b border-white/10 pb-3">
+                <p className="text-xs text-slate-500">Invite by username, email, or name</p>
+                <UserInviteSuggest
+                  searchPath={`/api/v1/events/${e.id}/users/search`}
+                  selected={invitePick}
+                  onChange={setInvitePick}
+                  single
+                  disabled={busy}
+                  onPickSingle={(u) => {
+                    void act(
+                      () =>
+                        api.post(`/api/v1/events/${e.id}/invite`, {
+                          username: u.username,
+                          query: u.email || u.username,
+                        }),
+                      `Invited @${u.username}`,
+                    )
+                  }}
+                  placeholder="Type username, email, or name"
+                />
+              </div>
             )}
-            {members && members.length === 0 && (
-              <p className="text-sm text-slate-500">No one has joined yet.</p>
-            )}
-            {members && members.length > 0 && (
-              <ul className="space-y-1.5">
-                {members.map((m) => (
-                  <li key={m.user_id} className="text-sm text-slate-300">
-                    {m.full_name || m.username}{' '}
-                    <span className="text-slate-500">@{m.username}</span>
-                    <span className="ml-1 text-xs text-slate-500">· {m.role}</span>
-                    {m.is_creator && (
-                      <span className="ml-1 text-xs text-yellow-400/80">· creator</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+
+            {peopleError && <p className="text-sm text-red-300">{peopleError}</p>}
+            {!people && !peopleError && <p className="text-sm text-slate-500">Loading…</p>}
+
+            {people && (
+              <>
+                <div>
+                  <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Going ({people.going.length})
+                  </h2>
+                  {people.going.length === 0 ? (
+                    <p className="text-sm text-slate-500">No one has joined yet.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {people.going.map((m) => (
+                        <li key={m.user_id} className="text-sm text-slate-300">
+                          {m.full_name || m.username}{' '}
+                          <span className="text-slate-500">@{m.username}</span>
+                          <span className="ml-1 text-xs text-emerald-400/80">· going</span>
+                          {m.is_creator && (
+                            <span className="ml-1 text-xs text-yellow-400/80">· creator</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="border-t border-white/10 pt-3">
+                  <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Invited ({people.invited.length})
+                  </h2>
+                  {people.invited.length === 0 ? (
+                    <p className="text-sm text-slate-500">No pending invitations.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {people.invited.map((inv) => (
+                        <li key={inv.id} className="text-sm text-slate-300">
+                          {inv.full_name || inv.username}{' '}
+                          <span className="text-slate-500">@{inv.username}</span>
+                          <span className="ml-1 text-xs text-amber-300/90">· invited</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
             )}
           </section>
         )}
-
-        {canShare && <EventShareBar shareUrl={shareUrl} title={e.title} />}
 
         {error && (
           <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -327,80 +454,51 @@ export function EventDetailPage() {
             )}
         </div>
 
-        {detail.is_host && (
-          <section className="space-y-3 border-t border-white/10 pt-4">
-            <h2 className="text-sm font-semibold text-white">Host tools</h2>
-            <div className="space-y-2">
-              <p className="text-xs text-slate-500">Invite by username, email, or name</p>
-              <UserInviteSuggest
-                searchPath={`/api/v1/events/${e.id}/users/search`}
-                selected={invitePick}
-                onChange={setInvitePick}
-                single
-                disabled={busy}
-                onPickSingle={(u) => {
-                  void act(
-                    () =>
-                      api.post(`/api/v1/events/${e.id}/invite`, {
-                        username: u.username,
-                        query: u.email || u.username,
-                      }),
-                    `Invited @${u.username}`,
-                  )
-                }}
-                placeholder="Type username, email, or name"
-              />
-            </div>
-
-            {detail.pending_join_requests?.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Join requests
-                </h3>
-                {detail.pending_join_requests.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-[#111827] px-3 py-2"
-                  >
-                    <div>
-                      <div className="text-sm font-medium">
-                        {r.full_name || r.username}{' '}
-                        <span className="text-slate-500">@{r.username}</span>
-                      </div>
-                      {r.message && <p className="text-xs text-slate-400">{r.message}</p>}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void act(
-                            () => api.post(`/api/v1/events/${e.id}/requests/${r.id}/accept`),
-                            'Request accepted',
-                          )
-                        }
-                        className="rounded-lg bg-yellow-400 px-2.5 py-1 text-xs font-bold text-slate-900"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void act(
-                            () => api.post(`/api/v1/events/${e.id}/requests/${r.id}/reject`),
-                            'Request declined',
-                          )
-                        }
-                        className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-200"
-                      >
-                        Decline
-                      </button>
-                    </div>
+        {detail.is_host && detail.pending_join_requests?.length > 0 && (
+          <section className="space-y-2 border-t border-white/10 pt-4">
+            <h2 className="text-sm font-semibold text-white">Join requests</h2>
+            {detail.pending_join_requests.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-[#111827] px-3 py-2"
+              >
+                <div>
+                  <div className="text-sm font-medium">
+                    {r.full_name || r.username}{' '}
+                    <span className="text-slate-500">@{r.username}</span>
                   </div>
-                ))}
+                  {r.message && <p className="text-xs text-slate-400">{r.message}</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => api.post(`/api/v1/events/${e.id}/requests/${r.id}/accept`),
+                        'Request accepted',
+                      )
+                    }
+                    className="rounded-lg bg-yellow-400 px-2.5 py-1 text-xs font-bold text-slate-900"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => api.post(`/api/v1/events/${e.id}/requests/${r.id}/reject`),
+                        'Request declined',
+                      )
+                    }
+                    className="rounded-lg border border-white/15 px-2.5 py-1 text-xs text-slate-200"
+                  >
+                    Decline
+                  </button>
+                </div>
               </div>
-            )}
+            ))}
           </section>
         )}
 
@@ -454,21 +552,6 @@ export function EventDetailPage() {
                 </button>
               </div>
             )}
-          </section>
-        )}
-
-        {detail.hosts?.length > 0 && (
-          <section className="border-t border-white/10 pt-4">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Hosts</h2>
-            <ul className="space-y-1 text-sm text-slate-300">
-              {detail.hosts.map((h) => (
-                <li key={h.user_id}>
-                  {h.full_name || h.username}{' '}
-                  <span className="text-slate-500">@{h.username}</span>
-                  {h.is_creator && <span className="ml-1 text-yellow-400/80">· creator</span>}
-                </li>
-              ))}
-            </ul>
           </section>
         )}
       </div>

@@ -132,6 +132,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 		{
 			protected.GET("/me", d.AuthCtrl.MeJSON)
 			protected.GET("/me/profile", d.ProfileCtrl.MeProfileJSON)
+			protected.PUT("/me/profile", d.ProfileCtrl.UpdateProfileJSON)
 			protected.POST("/me/photo", d.ProfileCtrl.UploadPhotoJSON)
 			protected.GET("/me/onboarding", d.ProfileCtrl.OnboardingJSON)
 			protected.POST("/me/onboarding", d.ProfileCtrl.CompleteOnboardingJSON)
@@ -146,6 +147,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.GET("/events/hosted", d.EventCtrl.ListHostedJSON)
 			// GET /events/:id is public (share links) — see open API group above
 			protected.DELETE("/events/:id", d.EventCtrl.DeleteJSON)
+			protected.PUT("/events/:id", d.EventCtrl.UpdateJSON)
 			protected.POST("/events/:id/join", d.EventCtrl.JoinJSON)
 			protected.POST("/events/:id/invite", d.EventCtrl.InviteJSON)
 			protected.POST("/events/:id/invitations/:invId/accept", d.EventCtrl.AcceptInvitationJSON)
@@ -156,6 +158,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.GET("/events/:id/users/search", d.EventCtrl.SearchUsersJSON)
 
 			protected.GET("/notifications", d.NotifCtrl.ListJSON)
+			protected.GET("/notifications/unread-count", d.NotifCtrl.UnreadCountJSON)
 			protected.POST("/notifications/:id/read", d.NotifCtrl.MarkReadJSON)
 
 			protected.GET("/connections", d.ConnCtrl.ListJSON)

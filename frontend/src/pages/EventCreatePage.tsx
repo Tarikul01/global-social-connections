@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import type { EventSummary } from '../lib/events'
 import { EventLocationPicker } from '../components/EventLocationPicker'
 import { UserInviteSuggest, type SuggestUser } from '../components/UserInviteSuggest'
+import { EventTypePicker } from '../components/EventTypePicker'
+import type { EventTypeId } from '../lib/eventTypes'
 
 const DEFAULT_LAT = 23.8103
 const DEFAULT_LNG = 90.4125
@@ -13,6 +15,7 @@ export function EventCreatePage() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [category, setCategory] = useState<EventTypeId | ''>('')
   const [eventDate, setEventDate] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
@@ -20,7 +23,7 @@ export function EventCreatePage() {
   const [lat, setLat] = useState(DEFAULT_LAT)
   const [lng, setLng] = useState(DEFAULT_LNG)
   const [maxParticipants, setMaxParticipants] = useState(20)
-  const [visibility, setVisibility] = useState<'public' | 'private'>('public')
+  const [visibility, setVisibility] = useState<'public' | 'private' | ''>('')
   const [invitees, setInvitees] = useState<SuggestUser[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,16 +57,43 @@ export function EventCreatePage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
+
+    if (!category) {
+      setError('Event type is required')
+      return
+    }
+    if (!title.trim()) {
+      setError('Event name is required')
+      return
+    }
+    if (!eventDate) {
+      setError('Date is required')
+      return
+    }
+    if (!locationName.trim()) {
+      setError('Location is required')
+      return
+    }
+    if (visibility !== 'public' && visibility !== 'private') {
+      setError('Please choose public or private')
+      return
+    }
+    if (!startTime) {
+      setError('Start time is required')
+      return
+    }
+
     setBusy(true)
     try {
       const invite_usernames = invitees.map((u) => u.username).join(', ')
       const res = await api.post<{ success: boolean; data: EventSummary }>('/api/v1/events', {
-        title,
+        title: title.trim(),
         description,
+        category,
         event_date: eventDate,
         start_time: startTime,
         end_time: endTime || undefined,
-        location_name: locationName,
+        location_name: locationName.trim(),
         lat,
         lng,
         max_participants: maxParticipants,
@@ -105,8 +135,12 @@ export function EventCreatePage() {
           </div>
         )}
 
+        <EventTypePicker value={category} onChange={setCategory} disabled={busy || atLimit} required />
+
         <label className="block text-sm">
-          <span className="mb-1 block text-slate-300">Title</span>
+          <span className="mb-1 block text-slate-300">
+            Event name <span className="text-red-400">*</span>
+          </span>
           <input
             required
             value={title}
@@ -128,7 +162,9 @@ export function EventCreatePage() {
         </label>
 
         <label className="block text-sm">
-          <span className="mb-1 block text-slate-300">Date</span>
+          <span className="mb-1 block text-slate-300">
+            Date <span className="text-red-400">*</span>
+          </span>
           <input
             type="date"
             required
@@ -140,7 +176,9 @@ export function EventCreatePage() {
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-300">Start</span>
+            <span className="mb-1 block text-slate-300">
+              Start <span className="text-red-400">*</span>
+            </span>
             <input
               type="time"
               required
@@ -161,8 +199,11 @@ export function EventCreatePage() {
         </div>
 
         <label className="block text-sm">
-          <span className="mb-1 block text-slate-300">Location name</span>
+          <span className="mb-1 block text-slate-300">
+            Location <span className="text-red-400">*</span>
+          </span>
           <input
+            required
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
             className="w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-2.5 outline-none focus:border-yellow-400"
@@ -191,31 +232,26 @@ export function EventCreatePage() {
           />
         </label>
 
-        <fieldset className="space-y-2 text-sm">
-          <legend className="mb-1 text-slate-300">Who can join?</legend>
-          <label className="flex cursor-pointer items-start gap-2">
-            <input
-              type="radio"
-              className="mt-1"
-              checked={visibility === 'public'}
-              onChange={() => setVisibility('public')}
-            />
-            <span>
-              <strong className="text-white">Public</strong> — anyone can request to join
-            </span>
-          </label>
-          <label className="flex cursor-pointer items-start gap-2">
-            <input
-              type="radio"
-              className="mt-1"
-              checked={visibility === 'private'}
-              onChange={() => setVisibility('private')}
-            />
-            <span>
-              <strong className="text-white">Private</strong> — invite only
-            </span>
-          </label>
-        </fieldset>
+        <label className="block text-sm">
+          <span className="mb-1 block text-slate-300">
+            Who can join? <span className="text-red-400">*</span>
+          </span>
+          <select
+            required
+            value={visibility}
+            onChange={(e) =>
+              setVisibility(e.target.value === 'private' ? 'private' : e.target.value === 'public' ? 'public' : '')
+            }
+            className="w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-2.5 outline-none focus:border-yellow-400"
+            style={{ colorScheme: 'dark' }}
+          >
+            <option value="" disabled>
+              Select public or private…
+            </option>
+            <option value="public">Public — anyone can request to join</option>
+            <option value="private">Private — invite only</option>
+          </select>
+        </label>
 
         <div className="text-sm">
           <span className="mb-1 block text-slate-300">Invite people (optional)</span>

@@ -1,4 +1,5 @@
 import { Link, NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import {
   Bell,
   Calendar,
@@ -9,6 +10,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
+import { api } from '../lib/api'
 import { UserAvatar } from './UserAvatar'
 
 type Props = {
@@ -23,10 +25,48 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
 
 export function SideNav({ open, onClose }: Props) {
   const { user, logout } = useAuth()
+  const [unread, setUnread] = useState(0)
+
+  useEffect(() => {
+    if (!user) {
+      setUnread(0)
+      return
+    }
+    let cancelled = false
+    const refresh = () => {
+      // Prefer dedicated count; fall back to list meta (no polling).
+      void api
+        .get<{ success: boolean; data?: { unread?: number }; meta?: { unread?: number } }>(
+          '/api/v1/notifications/unread-count',
+        )
+        .then((r) => {
+          if (cancelled) return
+          setUnread(r.data?.unread ?? r.meta?.unread ?? 0)
+        })
+        .catch(() => {
+          void api
+            .get<{ success: boolean; meta?: { unread?: number } }>('/api/v1/notifications')
+            .then((r) => {
+              if (!cancelled) setUnread(r.meta?.unread ?? 0)
+            })
+            .catch(() => {
+              if (!cancelled) setUnread(0)
+            })
+        })
+    }
+    refresh()
+    const onChanged = () => refresh()
+    window.addEventListener('fn:notifications-changed', onChanged)
+    window.addEventListener('focus', onChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener('fn:notifications-changed', onChanged)
+      window.removeEventListener('focus', onChanged)
+    }
+  }, [user])
 
   return (
     <>
-      {/* Mobile backdrop */}
       <div
         className={`fixed inset-0 z-[1100] bg-black/50 transition lg:hidden ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
@@ -75,7 +115,20 @@ export function SideNav({ open, onClose }: Props) {
                 <Handshake size={18} /> Connections
               </NavLink>
               <NavLink to="/notifications" className={linkClass} onClick={onClose}>
-                <Bell size={18} /> Notifications
+                <span className="relative">
+                  <Bell size={18} />
+                  {unread > 0 && (
+                    <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-0.5 text-[9px] font-bold text-slate-900">
+                      {unread > 9 ? '9+' : unread}
+                    </span>
+                  )}
+                </span>
+                Notifications
+                {unread > 0 && (
+                  <span className="ml-auto rounded-full bg-amber-400/20 px-1.5 text-[10px] font-bold text-amber-200">
+                    {unread}
+                  </span>
+                )}
               </NavLink>
               <NavLink to="/profile" className={linkClass} onClick={onClose}>
                 <UserAvatar

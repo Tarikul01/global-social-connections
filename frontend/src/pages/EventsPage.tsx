@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { CalendarPlus, MapPin, Users } from 'lucide-react'
 import { api } from '../lib/api'
 import type { EventSummary } from '../lib/events'
+import { EventTypeBadge } from '../components/EventTypeBadge'
 
 export function EventsPage() {
   const [events, setEvents] = useState<EventSummary[]>([])
@@ -159,7 +160,14 @@ function EventCard({ event }: { event: EventSummary }) {
       className="block rounded-2xl border border-white/10 bg-[#0b1224] p-4 transition hover:border-yellow-400/40"
     >
       <div className="flex items-start justify-between gap-3">
-        <h3 className="font-semibold text-white">{event.title}</h3>
+        <div className="min-w-0">
+          <h3 className="font-semibold text-white">{event.title}</h3>
+          {event.category && (
+            <div className="mt-1.5">
+              <EventTypeBadge category={event.category} />
+            </div>
+          )}
+        </div>
         <span
           className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
             event.visibility === 'private'

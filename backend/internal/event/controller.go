@@ -348,17 +348,28 @@ func safeNext(next, fallback string) string {
 }
 
 func (ctrl *Controller) notifyInvite(c *gin.Context, e *Event, inviteeID uuid.UUID, inviteeName string, invID uuid.UUID) {
-	if ctrl.notif == nil || e == nil || inviteeID == uuid.Nil {
+	if ctrl.notif == nil || inviteeID == uuid.Nil || invID == uuid.Nil {
 		return
 	}
-	_ = ctrl.notif.Create(c.Request.Context(), inviteeID, "event_invitation",
-		"Event invitation",
-		"You were invited to "+e.Title,
-		map[string]string{
-			"event_id":      e.ID.String(),
-			"invitation_id": invID.String(),
-			"invitee_name":  inviteeName,
-		})
+	title := "Event invitation"
+	body := "You were invited to an event"
+	eventID := ""
+	if e != nil {
+		eventID = e.ID.String()
+		if strings.TrimSpace(e.Title) != "" {
+			body = "You were invited to " + e.Title
+		}
+	}
+	data := map[string]string{
+		"invitation_id": invID.String(),
+		"invitee_name":  inviteeName,
+	}
+	if eventID != "" {
+		data["event_id"] = eventID
+	}
+	if err := ctrl.notif.Create(c.Request.Context(), inviteeID, "event_invitation", title, body, data); err != nil {
+		ctrl.log.Error("failed to create invite notification", "error", err, "invitee_id", inviteeID.String(), "invitation_id", invID.String())
+	}
 }
 
 func (ctrl *Controller) MapView(c *gin.Context) {
@@ -409,7 +420,7 @@ func (ctrl *Controller) ListHostedJSON(c *gin.Context) {
 	})
 }
 
-// EventMapJSON returns event pin + accepted members with locations (host only).
+// EventMapJSON returns event pin + going members with locations (host or member).
 func (ctrl *Controller) EventMapJSON(c *gin.Context) {
 	u, ok := auth.CurrentUser(c)
 	if !ok {

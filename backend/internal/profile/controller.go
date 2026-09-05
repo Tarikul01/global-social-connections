@@ -25,6 +25,10 @@ var suggestedInterests = []string{
 	"Nodejs", "Nestjs", "Reactjs", "Nextjs", "Go", "Python", "AWS", "Flutter", "TypeScript", "PostgreSQL",
 }
 
+var suggestedLookingFor = []string{
+	"networking", "mentorship", "cofounder", "hiring", "job", "collaboration", "investment",
+}
+
 var socialPlatforms = []string{
 	"linkedin", "github", "twitter", "youtube", "instagram", "facebook", "website",
 }

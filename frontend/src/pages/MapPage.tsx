@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { Filter, LocateFixed, MapPin, Minus, Plus, Radio, Users, X } from 'lucide-react'
+import { CalendarDays, Filter, LocateFixed, MapPin, Minus, Plus, Radio, Users, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { api, type NearbyUser, type Profession } from '../lib/api'
 import { Recenter } from '../components/Recenter'
@@ -10,6 +10,51 @@ import { useMapSocket } from '../hooks/useMapSocket'
 import { UserAvatar } from '../components/UserAvatar'
 import { MapUserPeek } from '../components/MapUserPeek'
 import { userShortform } from '../lib/avatar'
+import { EVENT_TYPES, eventTypeLabel, resolveEventCategory } from '../lib/eventTypes'
+import { eventMapDivIcon } from '../lib/eventMapIcons'
+import type { EventDetail, EventSummary } from '../lib/events'
+
+type EventMapMember = {
+  id: string
+  username: string
+  full_name: string
+  role: string
+  initials: string
+  lat: number
+  lng: number
+  live: boolean
+}
+
+function eventMemberIcon(initials: string, live: boolean) {
+  const short = escapeHtml(initials || '?')
+  return L.divIcon({
+    className: '',
+    html: `<div class="disc-marker ${live ? 'online' : 'offline'} event-attendee"><span class="disc-initials">${short}</span><span class="dot"></span></div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  })
+}
+
+function FitBounds({
+  points,
+  tick,
+}: {
+  points: [number, number][]
+  tick: number
+}) {
+  const map = useMap()
+  const last = useRef(0)
+  useEffect(() => {
+    if (tick === last.current || points.length === 0) return
+    last.current = tick
+    if (points.length === 1) {
+      map.setView(points[0], 15)
+      return
+    }
+    map.fitBounds(L.latLngBounds(points), { padding: [56, 56], maxZoom: 15 })
+  }, [map, points, tick])
+  return null
+}
 
 function markerIcon(u: NearbyUser, loggedIn: boolean) {
   const status = u.online ? 'online' : 'offline'
@@ -153,12 +198,15 @@ function MapControls({
   )
 }
 
-const eventPinIcon = L.divIcon({
-  className: 'leaflet-div-icon',
-  html: `<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#facc15;border:3px solid #0b1224;box-shadow:0 2px 10px rgba(0,0,0,.5)"></div>`,
-  iconSize: [22, 22],
-  iconAnchor: [11, 22],
-})
+function hasEventCoords(e: { lat?: number; lng?: number }) {
+  return (
+    typeof e.lat === 'number' &&
+    typeof e.lng === 'number' &&
+    Number.isFinite(e.lat) &&
+    Number.isFinite(e.lng) &&
+    !(e.lat === 0 && e.lng === 0)
+  )
+}
 
 export function MapPage() {
   const { user } = useAuth()
@@ -174,6 +222,9 @@ export function MapPage() {
   const [professions, setProfessions] = useState<Profession[]>([])
   const [selectedProfessions, setSelectedProfessions] = useState<string[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
+  const [eventsOpen, setEventsOpen] = useState(false)
+  /** When true, only the focused event pin is shown (hide other events). */
+  const [soloEvent, setSoloEvent] = useState(false)
   const [center, setCenter] = useState<[number, number]>([23.8103, 90.4125])
   const [zoom, setZoom] = useState(12)
   const [viewTick, setViewTick] = useState(0)
@@ -183,11 +234,17 @@ export function MapPage() {
     lng: number
     id?: string
     label?: string
+    type?: string
   } | null>(null)
+  const [mapEvents, setMapEvents] = useState<EventSummary[]>([])
+  const [eventMembers, setEventMembers] = useState<EventMapMember[]>([])
+  const [routeTick, setRouteTick] = useState(0)
   const focusAppliedRef = useRef(false)
   const [socketOk, setSocketOk] = useState(false)
   const [liveOn, setLiveOn] = useState(false)
   const [liveBusy, setLiveBusy] = useState(false)
+  /** Own GPS while live sharing — used for event direction lines. */
+  const [myLiveCoords, setMyLiveCoords] = useState<{ lat: number; lng: number } | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const lastLiveSentRef = useRef<{ t: number; lat: number; lng: number } | null>(null)
   const liveWatchActiveRef = useRef(false)
@@ -196,6 +253,7 @@ export function MapPage() {
   const stopLiveWatch = () => {
     liveWatchActiveRef.current = false
     lastLiveSentRef.current = null
+    setMyLiveCoords(null)
     if (watchIdRef.current != null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current)
       watchIdRef.current = null
@@ -210,6 +268,7 @@ export function MapPage() {
       (pos) => {
         const lat = pos.coords.latitude
         const lng = pos.coords.longitude
+        setMyLiveCoords({ lat, lng })
         const now = Date.now()
         const prev = lastLiveSentRef.current
         const moved = !prev || haversineM(prev.lat, prev.lng, lat, lng) >= 25
@@ -265,28 +324,130 @@ export function MapPage() {
       .catch(() => {})
   }, [])
 
-  // Focus map on event pin when opened via ?lat=&lng=&event=&label=
+  // Focus map on event pin when opened via ?lat=&lng=&event=&label=&type=
   useEffect(() => {
     const lat = Number(searchParams.get('lat'))
     const lng = Number(searchParams.get('lng'))
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       setEventFocus(null)
+      setSoloEvent(false)
       focusAppliedRef.current = false
       return
     }
     const z = Number(searchParams.get('zoom'))
     const zoomTo = Number.isFinite(z) && z > 0 ? z : 15
+    const label = searchParams.get('label') || undefined
+    const type =
+      searchParams.get('type') ||
+      resolveEventCategory(null, label) ||
+      undefined
     setEventFocus({
       lat,
       lng,
       id: searchParams.get('event') || undefined,
-      label: searchParams.get('label') || undefined,
+      label,
+      type,
     })
+    setSoloEvent(true)
     setCenter([lat, lng])
     setZoom(zoomTo)
     setViewTick((t) => t + 1)
     focusAppliedRef.current = true
   }, [searchParams])
+
+  // Resolve missing type/label from event API (older events may lack ?type=)
+  useEffect(() => {
+    const id = eventFocus?.id
+    if (!id) return
+    if (eventFocus.type && eventFocus.label) return
+    let cancelled = false
+    void api
+      .get<{ success: boolean; data: EventDetail }>(`/api/v1/events/${id}`)
+      .then((r) => {
+        if (cancelled || !r.data?.event) return
+        const e = r.data.event
+        const type = resolveEventCategory(e.category, e.title) || undefined
+        setEventFocus((prev) => {
+          if (!prev || prev.id !== id) return prev
+          return {
+            ...prev,
+            label: prev.label || e.title,
+            type: prev.type || type,
+            lat: hasEventCoords(e) ? (e.lat as number) : prev.lat,
+            lng: hasEventCoords(e) ? (e.lng as number) : prev.lng,
+          }
+        })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [eventFocus?.id, eventFocus?.type, eventFocus?.label])
+
+  // Going members once when focusing an event (live positions come from socket + GPS)
+  useEffect(() => {
+    const id = eventFocus?.id
+    if (!id || !soloEvent || !loggedIn) {
+      setEventMembers([])
+      return
+    }
+    let cancelled = false
+    void api
+      .get<{
+        success: boolean
+        data: { event: { lat: number; lng: number }; members: EventMapMember[] }
+      }>(`/api/v1/events/${id}/map-members`)
+      .then((r) => {
+        if (cancelled) return
+        const members = (r.data?.members || []).filter(
+          (m) =>
+            typeof m.lat === 'number' &&
+            typeof m.lng === 'number' &&
+            Number.isFinite(m.lat) &&
+            Number.isFinite(m.lng),
+        )
+        setEventMembers(members)
+        if (r.data?.event?.lat != null && r.data?.event?.lng != null) {
+          setEventFocus((prev) =>
+            prev && prev.id === id
+              ? { ...prev, lat: r.data.event.lat, lng: r.data.event.lng }
+              : prev,
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setEventMembers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [eventFocus?.id, soloEvent, loggedIn])
+
+  // Plot published events with coordinates on the discover map
+  useEffect(() => {
+    if (!loggedIn) {
+      setMapEvents([])
+      return
+    }
+    let cancelled = false
+    void api
+      .get<{ success: boolean; data: EventSummary[] }>('/api/v1/events')
+      .then((r) => {
+        if (cancelled) return
+        const list = (r.data || []).map((e) => ({
+          ...e,
+          lat: typeof e.lat === 'number' ? e.lat : Number(e.lat),
+          lng: typeof e.lng === 'number' ? e.lng : Number(e.lng),
+        }))
+        setMapEvents(list)
+      })
+      .catch(() => {
+        if (!cancelled) setMapEvents([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [loggedIn])
 
   useEffect(() => {
     if (!user) return
@@ -327,34 +488,29 @@ export function MapPage() {
     )
   }, [user])
 
-  // HTTP fallback when WebSocket is down (or slow to connect).
+  // HTTP fallback when WebSocket is down — one-shot only (no polling; socket is primary).
   useEffect(() => {
     if (!mapReady || socketOk) return
-    const load = () => {
-      const params = new URLSearchParams({
-        lat: String(center[0]),
-        lng: String(center[1]),
-        radius_km: String(zoomToRadius(zoom)),
+    const params = new URLSearchParams({
+      lat: String(center[0]),
+      lng: String(center[1]),
+      radius_km: String(zoomToRadius(zoom)),
+    })
+    if (status) params.set('status', status)
+    if (search.trim()) params.set('q', search.trim())
+    for (const p of selectedProfessions) params.append('professions', p)
+    void api
+      .get<{
+        success: boolean
+        data: { users?: NearbyUser[]; total?: number; online?: number; live?: boolean }
+      }>(`/api/v1/users/nearby?${params}`)
+      .then((r) => {
+        setUsers(r.data?.users || [])
+        setTotal(r.data?.total || 0)
+        setOnline(r.data?.online || 0)
+        if (typeof r.data?.live === 'boolean') setLiveOn(r.data.live)
       })
-      if (status) params.set('status', status)
-      if (search.trim()) params.set('q', search.trim())
-      for (const p of selectedProfessions) params.append('professions', p)
-      void api
-        .get<{
-          success: boolean
-          data: { users?: NearbyUser[]; total?: number; online?: number; live?: boolean }
-        }>(`/api/v1/users/nearby?${params}`)
-        .then((r) => {
-          setUsers(r.data?.users || [])
-          setTotal(r.data?.total || 0)
-          setOnline(r.data?.online || 0)
-          if (typeof r.data?.live === 'boolean') setLiveOn(r.data.live)
-        })
-        .catch(() => {})
-    }
-    load()
-    const id = window.setInterval(load, 8000)
-    return () => window.clearInterval(id)
+      .catch(() => {})
   }, [mapReady, socketOk, center, zoom, status, search, selectedProfessions])
 
   useEffect(() => {
@@ -423,9 +579,114 @@ export function MapPage() {
     setSelected(u)
   }
 
+  const publicEvents = useMemo(() => {
+    const byId = new Map<string, EventSummary>()
+    for (const e of mapEvents) {
+      if (e.visibility === 'private') continue
+      byId.set(e.id, e)
+    }
+    // Keep focused event visible in the count/list even if list API lagged.
+    if (eventFocus?.id && hasEventCoords(eventFocus)) {
+      const existing = byId.get(eventFocus.id)
+      if (!existing) {
+        byId.set(eventFocus.id, {
+          id: eventFocus.id,
+          creator_id: '',
+          title: eventFocus.label || 'Event',
+          category: eventFocus.type,
+          event_date: '',
+          location_name: '',
+          lat: eventFocus.lat,
+          lng: eventFocus.lng,
+          visibility: 'public',
+          member_count: 0,
+        })
+      }
+    }
+    return Array.from(byId.values())
+  }, [mapEvents, eventFocus])
+
+  const mappablePublicEvents = useMemo(
+    () => publicEvents.filter(hasEventCoords),
+    [publicEvents],
+  )
+
+  const eventsByCategory = useMemo(() => {
+    return EVENT_TYPES.map((t) => ({
+      ...t,
+      events: mappablePublicEvents.filter(
+        (e) => resolveEventCategory(e.category, e.title) === t.id,
+      ),
+    })).filter((g) => g.events.length > 0)
+  }, [mappablePublicEvents])
+
+  const focusEventOnMap = (ev: EventSummary) => {
+    if (!hasEventCoords(ev)) return
+    const type = resolveEventCategory(ev.category, ev.title) || undefined
+    setEventFocus({
+      lat: ev.lat as number,
+      lng: ev.lng as number,
+      id: ev.id,
+      label: ev.title,
+      type,
+    })
+    setSoloEvent(true)
+    setCenter([ev.lat as number, ev.lng as number])
+    setZoom(15)
+    setViewTick((n) => n + 1)
+    setEventsOpen(false)
+    setFilterOpen(false)
+  }
+
+  const clearEventFocus = () => {
+    setEventFocus(null)
+    setSoloEvent(false)
+    setEventMembers([])
+    setEventsOpen(false)
+  }
+
+  const routeAttendees = useMemo(() => {
+    return eventMembers.map((m) => {
+      // Prefer own live GPS immediately while sharing.
+      if (liveOn && myLiveCoords && user?.username && m.username === user.username) {
+        return { ...m, lat: myLiveCoords.lat, lng: myLiveCoords.lng, live: true }
+      }
+      // Prefer other members' live pins from nearby stream.
+      const nearby = users.find((u) => u.username === m.username && u.live)
+      if (nearby && typeof nearby.lat === 'number' && typeof nearby.lng === 'number') {
+        return { ...m, lat: nearby.lat, lng: nearby.lng, live: true }
+      }
+      return m
+    })
+  }, [eventMembers, liveOn, myLiveCoords, user?.username, users])
+
+  const routeBounds = useMemo((): [number, number][] => {
+    if (!eventFocus || !soloEvent) return []
+    const pts: [number, number][] = [[eventFocus.lat, eventFocus.lng]]
+    for (const m of routeAttendees) {
+      pts.push([m.lat, m.lng])
+    }
+    return pts
+  }, [eventFocus, routeAttendees, soloEvent])
+
+  // Fit once when the going-list set changes (not on every GPS tick)
+  const memberKey = eventMembers.map((m) => m.id).join(',')
+  useEffect(() => {
+    if (!soloEvent || !memberKey) return
+    setRouteTick((t) => t + 1)
+  }, [soloEvent, memberKey, eventFocus?.id])
+
+  const attendeeUsernames = useMemo(
+    () => new Set(routeAttendees.map((m) => m.username)),
+    [routeAttendees],
+  )
+
   const markers = useMemo(
     () =>
-      users.map((u) => {
+      users
+        // In event focus mode, going members are shown as attendee pins — don't double-draw.
+        .filter((u) => !(soloEvent && attendeeUsernames.has(u.username)))
+        .map((u) => {
         const isOpen = selected?.username === u.username
         return (
           <Marker
@@ -454,8 +715,160 @@ export function MapPage() {
         )
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [users, loggedIn, selected?.username],
+    [users, loggedIn, selected?.username, soloEvent, attendeeUsernames],
   )
+
+  const eventMarkers = useMemo(() => {
+    const nodes: ReactNode[] = []
+
+    if (!soloEvent) {
+      for (const ev of mapEvents) {
+        if (!hasEventCoords(ev)) continue
+        if (eventFocus?.id && ev.id === eventFocus.id) continue
+        const type = resolveEventCategory(ev.category, ev.title)
+        nodes.push(
+          <Marker
+            key={`ev-${ev.id}`}
+            position={[ev.lat as number, ev.lng as number]}
+            icon={eventMapDivIcon(type, { label: ev.title, title: ev.title })}
+            zIndexOffset={200}
+            eventHandlers={{
+              click: () => focusEventOnMap(ev),
+            }}
+          >
+            <Popup>
+              <div className="min-w-[160px] text-sm text-slate-900">
+                <div className="font-semibold">{ev.title}</div>
+                <div className="mt-0.5 text-xs text-slate-600">
+                  {eventTypeLabel(ev.category, ev.title)}
+                </div>
+                {ev.location_name && (
+                  <div className="mt-1 text-xs text-slate-500">{ev.location_name}</div>
+                )}
+                <Link to={`/e/${ev.id}`} className="mt-2 inline-block text-blue-600 underline">
+                  Open event
+                </Link>
+              </div>
+            </Popup>
+          </Marker>,
+        )
+      }
+    }
+
+    if (eventFocus) {
+      nodes.push(
+        <Marker
+          key={`ev-focus-${eventFocus.id || 'pin'}`}
+          position={[eventFocus.lat, eventFocus.lng]}
+          icon={eventMapDivIcon(eventFocus.type, {
+            focused: true,
+            label: eventFocus.label,
+            title: eventFocus.label,
+          })}
+          zIndexOffset={500}
+        >
+          <Popup>
+            <div className="min-w-[160px] text-sm text-slate-900">
+              <div className="font-semibold">{eventFocus.label || 'Event location'}</div>
+              <div className="mt-0.5 text-xs text-slate-600">
+                {eventTypeLabel(eventFocus.type, eventFocus.label)}
+              </div>
+              {eventFocus.id && (
+                <Link
+                  to={`/e/${eventFocus.id}`}
+                  className="mt-2 inline-block text-blue-600 underline"
+                >
+                  Open event
+                </Link>
+              )}
+            </div>
+          </Popup>
+        </Marker>,
+      )
+    }
+
+    return nodes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapEvents, eventFocus, soloEvent])
+
+  const attendeeLayers = useMemo(() => {
+    if (!soloEvent || !eventFocus || routeAttendees.length === 0) return null
+    const evLat = eventFocus.lat
+    const evLng = eventFocus.lng
+    return (
+      <>
+        {routeAttendees.map((m) => {
+          const nearVenue = haversineM(m.lat, m.lng, evLat, evLng) < 50
+          return (
+            <Fragment key={`att-${m.id}`}>
+              {!nearVenue && (
+                <>
+                  <Polyline
+                    positions={[
+                      [m.lat, m.lng],
+                      [evLat, evLng],
+                    ]}
+                    pathOptions={{
+                      color: '#991b1b',
+                      weight: 7,
+                      opacity: 0.28,
+                      lineCap: 'round',
+                    }}
+                  />
+                  <Polyline
+                    positions={[
+                      [m.lat, m.lng],
+                      [evLat, evLng],
+                    ]}
+                    pathOptions={{
+                      color: m.live ? '#22c55e' : '#ef4444',
+                      weight: 3.5,
+                      opacity: 0.95,
+                      dashArray: '10 7',
+                      lineCap: 'round',
+                    }}
+                    eventHandlers={{
+                      click: () => {
+                        setCenter([(m.lat + evLat) / 2, (m.lng + evLng) / 2])
+                        setZoom(14)
+                        setViewTick((t) => t + 1)
+                        setRouteTick((t) => t + 1)
+                      },
+                    }}
+                  />
+                </>
+              )}
+              <Marker
+                position={[m.lat, m.lng]}
+                icon={eventMemberIcon(m.initials, m.live)}
+                zIndexOffset={400}
+              >
+                <Popup>
+                  <div className="min-w-[150px] text-sm text-slate-900">
+                    <div className="font-semibold">{m.full_name}</div>
+                    <div className="text-xs text-slate-500">
+                      @{m.username}
+                      {m.live ? ' · Live location' : ' · Profile location'}
+                      {nearVenue ? ' · At venue' : ' · Going'}
+                    </div>
+                    {!nearVenue && (
+                      <button
+                        type="button"
+                        className="mt-2 text-blue-600 underline"
+                        onClick={() => setRouteTick((t) => t + 1)}
+                      >
+                        Show route on map
+                      </button>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            </Fragment>
+          )
+        })}
+      </>
+    )
+  }, [soloEvent, eventFocus, routeAttendees])
 
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -473,8 +886,28 @@ export function MapPage() {
         </span>
         <button
           type="button"
-          onClick={() => setFilterOpen((v) => !v)}
+          onClick={() => {
+            setEventsOpen((v) => !v)
+            setFilterOpen(false)
+          }}
           className={`ml-1 inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${
+            eventsOpen || soloEvent
+              ? 'bg-amber-400/20 text-amber-100'
+              : 'bg-white/10 text-slate-100'
+          }`}
+        >
+          <CalendarDays size={12} /> Events
+          <span className="rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-slate-900">
+            {publicEvents.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setFilterOpen((v) => !v)
+            setEventsOpen(false)
+          }}
+          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${
             selectedProfessions.length
               ? 'bg-yellow-400/20 text-yellow-200'
               : 'bg-blue-500/20 text-blue-100'
@@ -488,6 +921,99 @@ export function MapPage() {
           )}
         </button>
       </div>
+
+      {eventsOpen && (
+        <div className="absolute left-1/2 top-14 z-[1000] w-[min(92vw,22rem)] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#0b1224] p-3 shadow-xl lg:left-[calc(50%+9rem)]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+              Public events
+            </span>
+            {soloEvent && (
+              <button
+                type="button"
+                className="text-xs text-amber-300 underline"
+                onClick={clearEventFocus}
+              >
+                Show all
+              </button>
+            )}
+          </div>
+          {mappablePublicEvents.length === 0 ? (
+            <p className="px-1 py-3 text-sm text-slate-400">No public events with a location yet.</p>
+          ) : (
+            <div className="max-h-72 space-y-3 overflow-y-auto">
+              {eventsByCategory.map((group) => {
+                const Icon = group.Icon
+                return (
+                  <div key={group.id}>
+                    <div
+                      className="mb-1 flex items-center gap-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{ color: group.color }}
+                    >
+                      <Icon size={12} />
+                      {group.label.replace(/ event$/i, '')}
+                      <span className="text-slate-500">({group.events.length})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {group.events.map((ev) => {
+                        const active = soloEvent && eventFocus?.id === ev.id
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            onClick={() => focusEventOnMap(ev)}
+                            className={`flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
+                              active
+                                ? 'bg-amber-400/15 text-amber-50 ring-1 ring-amber-400/40'
+                                : 'hover:bg-white/5'
+                            }`}
+                          >
+                            <span
+                              className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                              style={{ background: `${group.color}33`, color: group.color }}
+                            >
+                              <Icon size={14} />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium text-white">{ev.title}</span>
+                              <span className="block truncate text-xs text-slate-400">
+                                {ev.location_name || 'On map'}
+                                {ev.event_date_label || ev.event_date
+                                  ? ` · ${ev.event_date_label || ev.event_date}`
+                                  : ''}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+              {mappablePublicEvents.filter((e) => !resolveEventCategory(e.category, e.title))
+                .length > 0 && (
+                <div>
+                  <div className="mb-1 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Other
+                  </div>
+                  {mappablePublicEvents
+                    .filter((e) => !resolveEventCategory(e.category, e.title))
+                    .map((ev) => (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        onClick={() => focusEventOnMap(ev)}
+                        className="flex w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-white/5"
+                      >
+                        <span className="truncate font-medium text-white">{ev.title}</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {filterOpen && (
         <div className="absolute left-1/2 top-14 z-[1000] w-[min(92vw,22rem)] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#0b1224] p-3 shadow-xl">
@@ -545,6 +1071,9 @@ export function MapPage() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <Recenter center={center} zoom={zoom} tick={viewTick} />
+        {soloEvent && routeBounds.length > 0 && (
+          <FitBounds points={routeBounds} tick={routeTick} />
+        )}
         <MapEvents
           onMove={(lat, lng, z) => {
             setCenter([lat, lng])
@@ -565,6 +1094,7 @@ export function MapPage() {
               setCenter([eventFocus.lat, eventFocus.lng])
               setZoom(15)
               setViewTick((t) => t + 1)
+              setRouteTick((t) => t + 1)
               return
             }
             const me = users.find((u) => u.is_me)
@@ -575,25 +1105,8 @@ export function MapPage() {
             }
           }}
         />
-        {eventFocus && (
-          <Marker position={[eventFocus.lat, eventFocus.lng]} icon={eventPinIcon}>
-            <Popup>
-              <div className="min-w-[140px] text-sm">
-                <div className="font-semibold text-slate-900">
-                  {eventFocus.label || 'Event location'}
-                </div>
-                {eventFocus.id && (
-                  <Link
-                    to={`/e/${eventFocus.id}`}
-                    className="mt-1 inline-block text-blue-600 underline"
-                  >
-                    Open event
-                  </Link>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        )}
+        {attendeeLayers}
+        {eventMarkers}
         {markers}
       </MapContainer>
 

@@ -24,7 +24,7 @@ var (
 	ErrUserNotFound    = errors.New("user not found")
 	ErrAlreadyInvited  = errors.New("user already invited")
 	ErrEventLimit      = errors.New("you can create at most 2 events at a time")
-	ErrNotCreator      = errors.New("only the event creator can delete this event")
+	ErrNotCreator      = errors.New("only the event creator can do this")
 )
 
 // MaxEventsPerCreator is how many events one user may own concurrently.
@@ -58,15 +58,15 @@ type JoinRequestView struct {
 }
 
 type InvitationView struct {
-	ID              uuid.UUID
-	InviteeID       uuid.UUID
-	Username        string
-	Email           string
-	FullName        string
-	Status          string
-	InviterID       uuid.UUID
-	InviterUsername string
-	InviterName     string
+	ID              uuid.UUID `json:"id"`
+	InviteeID       uuid.UUID `json:"invitee_id"`
+	Username        string    `json:"username"`
+	Email           string    `json:"email,omitempty"`
+	FullName        string    `json:"full_name"`
+	Status          string    `json:"status"`
+	InviterID       uuid.UUID `json:"inviter_id"`
+	InviterUsername string    `json:"inviter_username"`
+	InviterName     string    `json:"inviter_name"`
 }
 
 type HostView struct {
@@ -144,7 +144,7 @@ type EventMapMember struct {
 	Live     bool      `json:"live"`
 }
 
-// EventMapView is host-only payload: event pin + accepted members with locations.
+// EventMapView is event pin + going members with locations (for hosts/members).
 type EventMapView struct {
 	Event   HostedEventSummary `json:"event"`
 	Members []EventMapMember   `json:"members"`
@@ -283,6 +283,41 @@ func (r *Repository) DeleteByCreator(ctx context.Context, eventID, creatorID uui
 	return tx.Commit(ctx)
 }
 
+func (r *Repository) UpdateByCreator(ctx context.Context, eventID, creatorID uuid.UUID, e Event) (*Event, error) {
+	var owner uuid.UUID
+	err := r.pool.QueryRow(ctx, `SELECT creator_id FROM events WHERE id = $1`, eventID).Scan(&owner)
+	if err != nil {
+		return nil, err
+	}
+	if owner != creatorID {
+		return nil, ErrNotCreator
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE events SET
+			title = $3,
+			description = $4,
+			category = $5,
+			event_date = $6,
+			start_time = $7,
+			end_time = NULLIF($8, '')::time,
+			location_name = $9,
+			geom = ST_SetSRID(ST_MakePoint($11, $10), 4326)::geography,
+			max_participants = $12,
+			visibility = $13,
+			live_location_enabled = $14,
+			updated_at = now()
+		WHERE id = $1 AND creator_id = $2
+	`, eventID, creatorID, e.Title, e.Description, e.Category, e.EventDate, e.StartTime, e.EndTime,
+		e.LocationName, e.Latitude, e.Longitude, e.MaxParticipants, e.Visibility, e.LiveLocationEnabled)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotCreator
+	}
+	return r.GetByID(ctx, eventID)
+}
+
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Event, error) {
 	var e Event
 	var lat, lng *float64
@@ -310,9 +345,15 @@ func (r *Repository) List(ctx context.Context, limit int) ([]Event, error) {
 		limit = 20
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT e.id, e.creator_id, e.title, e.event_date, e.start_time::text, e.location_name, e.visibility, e.status,
+		SELECT e.id, e.creator_id, e.title, COALESCE(e.description,''), COALESCE(e.category,''),
+			e.event_date, e.start_time::text, COALESCE(e.end_time::text,''), e.location_name,
+			COALESCE(ST_Y(e.geom::geometry), 0), COALESCE(ST_X(e.geom::geometry), 0),
+			e.max_participants, e.visibility, e.status, e.live_location_enabled,
 			(SELECT COUNT(*) FROM event_members em WHERE em.event_id = e.id)
-		FROM events e WHERE e.status='published' ORDER BY e.event_date ASC LIMIT $1
+		FROM events e
+		WHERE e.status = 'published'
+		ORDER BY e.event_date ASC
+		LIMIT $1
 	`, limit)
 	if err != nil {
 		return nil, err
@@ -321,7 +362,13 @@ func (r *Repository) List(ctx context.Context, limit int) ([]Event, error) {
 	var list []Event
 	for rows.Next() {
 		var e Event
-		_ = rows.Scan(&e.ID, &e.CreatorID, &e.Title, &e.EventDate, &e.StartTime, &e.LocationName, &e.Visibility, &e.Status, &e.MemberCount)
+		_ = rows.Scan(
+			&e.ID, &e.CreatorID, &e.Title, &e.Description, &e.Category,
+			&e.EventDate, &e.StartTime, &e.EndTime, &e.LocationName,
+			&e.Latitude, &e.Longitude,
+			&e.MaxParticipants, &e.Visibility, &e.Status, &e.LiveLocationEnabled,
+			&e.MemberCount,
+		)
 		list = append(list, e)
 	}
 	return list, nil
@@ -370,27 +417,30 @@ func (r *Repository) ListAcceptedMembersWithLocations(ctx context.Context, event
 			COALESCE(
 				(SELECT ll.latitude FROM live_locations ll
 				 JOIN location_settings ls ON ls.user_id = u.id
-				 WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				 WHERE ll.user_id = u.id
 				   AND ls.live_sharing_enabled = true
-				   AND ll.updated_at > now() - interval '5 minutes'
+				   AND ll.updated_at > now() - interval '10 minutes'
+				   AND (ll.event_id IS NULL OR ll.event_id = $1)
 				 ORDER BY ll.updated_at DESC LIMIT 1),
 				ST_Y(ul.geom::geometry)
 			),
 			COALESCE(
 				(SELECT ll.longitude FROM live_locations ll
 				 JOIN location_settings ls ON ls.user_id = u.id
-				 WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				 WHERE ll.user_id = u.id
 				   AND ls.live_sharing_enabled = true
-				   AND ll.updated_at > now() - interval '5 minutes'
+				   AND ll.updated_at > now() - interval '10 minutes'
+				   AND (ll.event_id IS NULL OR ll.event_id = $1)
 				 ORDER BY ll.updated_at DESC LIMIT 1),
 				ST_X(ul.geom::geometry)
 			),
 			EXISTS (
 				SELECT 1 FROM live_locations ll
 				JOIN location_settings ls ON ls.user_id = u.id
-				WHERE ll.user_id = u.id AND ll.event_id IS NULL
+				WHERE ll.user_id = u.id
 				  AND ls.live_sharing_enabled = true
-				  AND ll.updated_at > now() - interval '5 minutes'
+				  AND ll.updated_at > now() - interval '10 minutes'
+				  AND (ll.event_id IS NULL OR ll.event_id = $1)
 			) AS is_live
 		FROM event_members em
 		JOIN users u ON u.id = em.user_id
@@ -398,15 +448,8 @@ func (r *Repository) ListAcceptedMembersWithLocations(ctx context.Context, event
 		JOIN user_locations ul ON ul.user_id = u.id AND ul.geom IS NOT NULL
 		WHERE em.event_id = $1
 		  AND u.deleted_at IS NULL
-		  AND (
-			em.role IN ('member', 'co_host')
-			OR EXISTS (
-				SELECT 1 FROM event_invitations ei
-				WHERE ei.event_id = em.event_id AND ei.invitee_id = em.user_id AND ei.status = 'accepted'
-			)
-		  )
 		ORDER BY
-			CASE em.role WHEN 'co_host' THEN 0 WHEN 'member' THEN 1 ELSE 2 END,
+			CASE em.role WHEN 'host' THEN 0 WHEN 'co_host' THEN 1 WHEN 'member' THEN 2 ELSE 3 END,
 			COALESCE(p.full_name, u.username)
 	`, eventID)
 	if err != nil {
@@ -924,17 +967,18 @@ func NewService(repo *Repository, pool *pgxpool.Pool, log *logger.Logger) *Servi
 }
 
 func (s *Service) Create(ctx context.Context, e Event) (*Event, error) {
-	if e.Title == "" {
-		return nil, errors.New("title required")
-	}
 	if e.MaxParticipants <= 0 {
 		e.MaxParticipants = 20
 	}
-	if e.Visibility == "" {
-		e.Visibility = "public"
+	cat, err := normalizeEventCategory(e.Category)
+	if err != nil {
+		return nil, err
 	}
-	if e.Visibility != "public" && e.Visibility != "private" {
-		e.Visibility = "public"
+	e.Category = cat
+	e.Title = strings.TrimSpace(e.Title)
+	e.LocationName = strings.TrimSpace(e.LocationName)
+	if err := validateEventFields(e); err != nil {
+		return nil, err
 	}
 	n, err := s.repo.CountByCreator(ctx, e.CreatorID)
 	if err != nil {
@@ -948,6 +992,64 @@ func (s *Service) Create(ctx context.Context, e Event) (*Event, error) {
 
 func (s *Service) Delete(ctx context.Context, eventID, creatorID uuid.UUID) error {
 	return s.repo.DeleteByCreator(ctx, eventID, creatorID)
+}
+
+func (s *Service) Update(ctx context.Context, eventID, creatorID uuid.UUID, e Event) (*Event, error) {
+	if e.MaxParticipants <= 0 {
+		e.MaxParticipants = 20
+	}
+	if e.Visibility != "public" && e.Visibility != "private" {
+		return nil, errors.New("visibility must be public or private")
+	}
+	cat, err := normalizeEventCategory(e.Category)
+	if err != nil {
+		return nil, err
+	}
+	e.Category = cat
+	e.Title = strings.TrimSpace(e.Title)
+	e.LocationName = strings.TrimSpace(e.LocationName)
+	if err := validateEventFields(e); err != nil {
+		return nil, err
+	}
+	return s.repo.UpdateByCreator(ctx, eventID, creatorID, e)
+}
+
+// Allowed event categories (event types).
+var allowedEventCategories = map[string]string{
+	"coffee":     "coffee",
+	"meetup":     "meetup",
+	"ride_share": "ride_share",
+	"business":   "business",
+}
+
+func normalizeEventCategory(raw string) (string, error) {
+	c := strings.TrimSpace(strings.ToLower(raw))
+	if c == "" {
+		return "", errors.New("event type is required")
+	}
+	if v, ok := allowedEventCategories[c]; ok {
+		return v, nil
+	}
+	return "", errors.New("event type must be coffee, meetup, ride_share, or business")
+}
+
+func validateEventFields(e Event) error {
+	if strings.TrimSpace(e.Title) == "" {
+		return errors.New("event name is required")
+	}
+	if e.EventDate.IsZero() {
+		return errors.New("date is required")
+	}
+	if strings.TrimSpace(e.LocationName) == "" {
+		return errors.New("location is required")
+	}
+	if e.Visibility != "public" && e.Visibility != "private" {
+		return errors.New("visibility must be public or private")
+	}
+	if strings.TrimSpace(e.StartTime) == "" {
+		return errors.New("start time is required")
+	}
+	return nil
 }
 
 func (s *Service) CountByCreator(ctx context.Context, creatorID uuid.UUID) (int, error) {
@@ -966,14 +1068,15 @@ func (s *Service) ListHosted(ctx context.Context, userID uuid.UUID) ([]HostedEve
 	return s.repo.ListHostedByUser(ctx, userID)
 }
 
-func (s *Service) EventMapForHost(ctx context.Context, eventID, hostID uuid.UUID) (*EventMapView, error) {
-	if err := s.assertHost(ctx, eventID, hostID); err != nil {
-		return nil, err
-	}
-	e, err := s.repo.GetByID(ctx, eventID)
+func (s *Service) EventMapForHost(ctx context.Context, eventID, viewerID uuid.UUID) (*EventMapView, error) {
+	sc, err := s.ShowContext(ctx, eventID, viewerID, 1, 1)
 	if err != nil {
 		return nil, err
 	}
+	if !sc.IsHost && !sc.IsMember {
+		return nil, ErrNotAuthorized
+	}
+	e := &sc.Event
 	if e.Latitude == 0 && e.Longitude == 0 {
 		return nil, ErrInvalidState
 	}
@@ -1094,6 +1197,46 @@ func (s *Service) ListMembers(ctx context.Context, eventID, viewerID uuid.UUID) 
 		return nil, ErrNotAuthorized
 	}
 	return s.repo.ListMembers(ctx, eventID)
+}
+
+// PeopleRoster is the going list plus pending invites for the event detail panel.
+type PeopleRoster struct {
+	Going   []MemberView     `json:"going"`
+	Invited []InvitationView `json:"invited"`
+	IsHost  bool             `json:"is_host"`
+}
+
+func (s *Service) ListPeople(ctx context.Context, eventID, viewerID uuid.UUID) (*PeopleRoster, error) {
+	sc, err := s.ShowContext(ctx, eventID, viewerID, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	if sc.Event.Visibility == "private" && !sc.IsHost && !sc.IsMember && sc.MyInvitationID == nil {
+		return nil, ErrNotAuthorized
+	}
+	going, err := s.repo.ListMembers(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if going == nil {
+		going = []MemberView{}
+	}
+	out := &PeopleRoster{Going: going, Invited: []InvitationView{}, IsHost: sc.IsHost}
+	// Invites: hosts always see them; members of public/private events see pending invitees (no emails).
+	invites, err := s.repo.ListInvitations(ctx, eventID)
+	if err != nil {
+		return out, nil
+	}
+	for _, inv := range invites {
+		if inv.Status != "pending" {
+			continue
+		}
+		if !sc.IsHost {
+			inv.Email = ""
+		}
+		out.Invited = append(out.Invited, inv)
+	}
+	return out, nil
 }
 
 func (s *Service) InviteUser(ctx context.Context, eventID, hostID, inviteeID uuid.UUID) (uuid.UUID, string, error) {

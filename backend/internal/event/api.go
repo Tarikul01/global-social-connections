@@ -414,11 +414,15 @@ func (ctrl *Controller) InviteJSON(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "username or email required"})
 		return
 	}
-	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
+	e, errGet := ctrl.svc.Get(c.Request.Context(), eventID)
 	invID, inviteeID, inviteeName, err := ctrl.svc.InviteByUsername(c.Request.Context(), eventID, u.ID, q)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
+	}
+	if errGet != nil || e == nil {
+		// Still notify even if event reload failed — invitation was created.
+		e = &Event{ID: eventID, Title: "an event"}
 	}
 	ctrl.notifyInvite(c, e, inviteeID, inviteeName, invID)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"invitation_id": invID, "invitee": inviteeName}})
@@ -470,7 +474,7 @@ func (ctrl *Controller) SearchUsersGlobalJSON(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": users})
 }
 
-// ListMembersJSON returns people who joined the event.
+// ListMembersJSON returns people who joined the event, plus pending invites.
 func (ctrl *Controller) ListMembersJSON(c *gin.Context) {
 	eventID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -481,7 +485,7 @@ func (ctrl *Controller) ListMembersJSON(c *gin.Context) {
 	if u, ok := auth.CurrentUser(c); ok {
 		viewerID = u.ID
 	}
-	members, err := ctrl.svc.ListMembers(c.Request.Context(), eventID, viewerID)
+	roster, err := ctrl.svc.ListPeople(c.Request.Context(), eventID, viewerID)
 	if err != nil {
 		if errors.Is(err, ErrNotAuthorized) {
 			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "forbidden"})
@@ -490,10 +494,7 @@ func (ctrl *Controller) ListMembersJSON(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "event not found"})
 		return
 	}
-	if members == nil {
-		members = []MemberView{}
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": members})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": roster})
 }
 
 // DeleteJSON removes an event. Only the creator may delete; related data is removed.
@@ -522,4 +523,65 @@ func (ctrl *Controller) DeleteJSON(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
+}
+
+// UpdateJSON updates an event. Only the creator may edit.
+func (ctrl *Controller) UpdateJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid event"})
+		return
+	}
+	var body createEventBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid body"})
+		return
+	}
+	date, err := time.Parse("2006-01-02", strings.TrimSpace(body.EventDate))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "event_date must be YYYY-MM-DD"})
+		return
+	}
+	visibility := body.Visibility
+	if visibility != "private" {
+		visibility = "public"
+	}
+	maxP := body.MaxParticipants
+	if maxP <= 0 {
+		maxP = 20
+	}
+	updated, err := ctrl.svc.Update(c.Request.Context(), eventID, u.ID, Event{
+		Title:               strings.TrimSpace(body.Title),
+		Description:         strings.TrimSpace(body.Description),
+		Category:            strings.TrimSpace(body.Category),
+		EventDate:           date,
+		StartTime:           strings.TrimSpace(body.StartTime),
+		EndTime:             strings.TrimSpace(body.EndTime),
+		LocationName:        strings.TrimSpace(body.LocationName),
+		Latitude:            body.Lat,
+		Longitude:           body.Lng,
+		MaxParticipants:     maxP,
+		Visibility:          visibility,
+		LiveLocationEnabled: body.LiveLocationEnabled,
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotCreator) {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "only the event creator can edit this event"})
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "event not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	data := eventJSON(*updated)
+	data["share_url"] = ctrl.eventShareURL(updated.ID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }

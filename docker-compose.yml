@@ -1,3 +1,8 @@
+# docker compose up -d postgres   # DB only
+# cd backend && go run ./cmd/server
+# cd frontend && npm install && npm run dev   # http://localhost:5173
+
+
 services:
   postgres:
     image: postgis/postgis:16-3.4

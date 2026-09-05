@@ -7,8 +7,10 @@ import { RegisterPage } from './pages/RegisterPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { EventsPage } from './pages/EventsPage'
 import { EventCreatePage } from './pages/EventCreatePage'
+import { EventEditPage } from './pages/EventEditPage'
 import { EventDetailPage } from './pages/EventDetailPage'
 import { OnboardingPage } from './pages/OnboardingPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -76,6 +78,14 @@ export default function App() {
               }
             />
             <Route
+              path="/events/:id/edit"
+              element={
+                <Protected>
+                  <EventEditPage />
+                </Protected>
+              }
+            />
+            <Route
               path="/messages"
               element={
                 <Protected>
@@ -95,7 +105,7 @@ export default function App() {
               path="/notifications"
               element={
                 <Protected>
-                  <PlaceholderPage title="Notifications" />
+                  <NotificationsPage />
                 </Protected>
               }
             />
