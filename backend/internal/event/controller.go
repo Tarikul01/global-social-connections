@@ -398,7 +398,15 @@ func (ctrl *Controller) ListHostedJSON(c *gin.Context) {
 	if list == nil {
 		list = []HostedEventSummary{}
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": list})
+	createdCount, _ := ctrl.svc.CountByCreator(c.Request.Context(), u.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    list,
+		"meta": gin.H{
+			"created_count": createdCount,
+			"max_events":    MaxEventsPerCreator,
+		},
+	})
 }
 
 // EventMapJSON returns event pin + accepted members with locations (host only).

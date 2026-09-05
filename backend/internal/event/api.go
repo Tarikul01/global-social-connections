@@ -9,6 +9,7 @@ import (
 	"github.com/findneighbour/findneighbour/internal/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func eventJSON(e Event) gin.H {
@@ -164,7 +165,11 @@ func (ctrl *Controller) CreateJSON(c *gin.Context) {
 		LiveLocationEnabled: body.LiveLocationEnabled,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		status := http.StatusBadRequest
+		if errors.Is(err, ErrEventLimit) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
@@ -395,17 +400,126 @@ func (ctrl *Controller) InviteJSON(c *gin.Context) {
 	}
 	var body struct {
 		Username string `json:"username"`
+		Query    string `json:"query"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Username) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "username required"})
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid body"})
+		return
+	}
+	q := strings.TrimSpace(body.Query)
+	if q == "" {
+		q = strings.TrimSpace(body.Username)
+	}
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "username or email required"})
 		return
 	}
 	e, _ := ctrl.svc.Get(c.Request.Context(), eventID)
-	invID, inviteeID, inviteeName, err := ctrl.svc.InviteByUsername(c.Request.Context(), eventID, u.ID, body.Username)
+	invID, inviteeID, inviteeName, err := ctrl.svc.InviteByUsername(c.Request.Context(), eventID, u.ID, q)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 	ctrl.notifyInvite(c, e, inviteeID, inviteeName, invID)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"invitation_id": invID, "invitee": inviteeName}})
+}
+
+// SearchUsersJSON finds users by username, email, or name for inviting (host).
+func (ctrl *Controller) SearchUsersJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid event"})
+		return
+	}
+	sc, err := ctrl.svc.ShowContext(c.Request.Context(), eventID, u.ID, 1, 1)
+	if err != nil || !sc.IsHost {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "forbidden"})
+		return
+	}
+	users, err := ctrl.svc.SearchUsers(c.Request.Context(), eventID, u.ID, c.Query("q"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "search failed"})
+		return
+	}
+	if users == nil {
+		users = []UserSearchResult{}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": users})
+}
+
+// SearchUsersGlobalJSON finds users by username, email, or name (create-event invites).
+func (ctrl *Controller) SearchUsersGlobalJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	users, err := ctrl.svc.SearchUsersGlobal(c.Request.Context(), u.ID, c.Query("q"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "search failed"})
+		return
+	}
+	if users == nil {
+		users = []UserSearchResult{}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": users})
+}
+
+// ListMembersJSON returns people who joined the event.
+func (ctrl *Controller) ListMembersJSON(c *gin.Context) {
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid event"})
+		return
+	}
+	var viewerID uuid.UUID
+	if u, ok := auth.CurrentUser(c); ok {
+		viewerID = u.ID
+	}
+	members, err := ctrl.svc.ListMembers(c.Request.Context(), eventID, viewerID)
+	if err != nil {
+		if errors.Is(err, ErrNotAuthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": "forbidden"})
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "event not found"})
+		return
+	}
+	if members == nil {
+		members = []MemberView{}
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": members})
+}
+
+// DeleteJSON removes an event. Only the creator may delete; related data is removed.
+func (ctrl *Controller) DeleteJSON(c *gin.Context) {
+	u, ok := auth.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "unauthorized"})
+		return
+	}
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid event"})
+		return
+	}
+	if err := ctrl.svc.Delete(c.Request.Context(), eventID, u.ID); err != nil {
+		if errors.Is(err, ErrNotCreator) {
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "event not found"})
+			return
+		}
+		// pgx.ErrNoRows may come as wrapped / raw from QueryRow
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": true}})
 }

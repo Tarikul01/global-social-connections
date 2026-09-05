@@ -23,7 +23,12 @@ var (
 	ErrCannotJoinOwn   = errors.New("you cannot join your own event")
 	ErrUserNotFound    = errors.New("user not found")
 	ErrAlreadyInvited  = errors.New("user already invited")
+	ErrEventLimit      = errors.New("you can create at most 2 events at a time")
+	ErrNotCreator      = errors.New("only the event creator can delete this event")
 )
+
+// MaxEventsPerCreator is how many events one user may own concurrently.
+const MaxEventsPerCreator = 2
 
 type Event struct {
 	ID                  uuid.UUID
@@ -77,6 +82,14 @@ type UserSearchResult struct {
 	Username string    `json:"username"`
 	Email    string    `json:"email"`
 	FullName string    `json:"full_name"`
+}
+
+type MemberView struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"username"`
+	FullName  string    `json:"full_name"`
+	Role      string    `json:"role"`
+	IsCreator bool      `json:"is_creator"`
 }
 
 type InvitationListPage struct {
@@ -210,6 +223,64 @@ func (r *Repository) createSimple(ctx context.Context, e Event) (*Event, error) 
 		ON CONFLICT (event_id, user_id) DO NOTHING
 	`, out.ID, e.CreatorID)
 	return r.GetByID(ctx, out.ID)
+}
+
+func (r *Repository) CountByCreator(ctx context.Context, creatorID uuid.UUID) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM events WHERE creator_id = $1
+	`, creatorID).Scan(&n)
+	return n, err
+}
+
+// DeleteByCreator removes the event and all dependent rows. Only the creator may delete.
+// Cascades cover members, invitations, join requests, and live consent; we also clear
+// live_locations, reports, and notifications that reference the event.
+func (r *Repository) DeleteByCreator(ctx context.Context, eventID, creatorID uuid.UUID) error {
+	var owner uuid.UUID
+	err := r.pool.QueryRow(ctx, `SELECT creator_id FROM events WHERE id = $1`, eventID).Scan(&owner)
+	if err != nil {
+		return err
+	}
+	if owner != creatorID {
+		return ErrNotCreator
+	}
+
+	run := func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM live_locations WHERE event_id = $1`, eventID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE reports SET reported_event_id = NULL WHERE reported_event_id = $1`, eventID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM notifications
+			WHERE data->>'event_id' = $1
+		`, eventID.String()); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM events WHERE id = $1 AND creator_id = $2`, eventID, creatorID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotCreator
+		}
+		return nil
+	}
+
+	if r.db != nil {
+		return r.db.WithTx(ctx, run)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := run(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Event, error) {
@@ -548,7 +619,71 @@ func (r *Repository) SearchUsers(ctx context.Context, eventID, excludeUserID uui
 		}
 		list = append(list, u)
 	}
-	return list, nil
+	return list, rows.Err()
+}
+
+// SearchUsersGlobal matches username, email, or full name (for create-event invites).
+func (r *Repository) SearchUsersGlobal(ctx context.Context, excludeUserID uuid.UUID, query string, limit int) ([]UserSearchResult, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 20 {
+		limit = 10
+	}
+	pattern := "%" + q + "%"
+	rows, err := r.pool.Query(ctx, `
+		SELECT u.id, u.username, u.email, COALESCE(p.full_name, u.username)
+		FROM users u
+		LEFT JOIN profiles p ON p.user_id = u.id
+		WHERE u.deleted_at IS NULL
+		  AND u.id <> $3
+		  AND (u.username ILIKE $1 OR u.email ILIKE $1 OR COALESCE(p.full_name,'') ILIKE $1)
+		ORDER BY
+			CASE WHEN u.username ILIKE $2 THEN 0 WHEN u.email ILIKE $2 THEN 1 ELSE 2 END,
+			u.username
+		LIMIT $4
+	`, pattern, q+"%", excludeUserID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []UserSearchResult
+	for rows.Next() {
+		var u UserSearchResult
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.FullName); err != nil {
+			return nil, err
+		}
+		list = append(list, u)
+	}
+	return list, rows.Err()
+}
+
+func (r *Repository) ListMembers(ctx context.Context, eventID uuid.UUID) ([]MemberView, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT em.user_id, u.username, COALESCE(p.full_name, u.username), em.role, (e.creator_id = em.user_id)
+		FROM event_members em
+		JOIN users u ON u.id = em.user_id
+		LEFT JOIN profiles p ON p.user_id = em.user_id
+		JOIN events e ON e.id = em.event_id
+		WHERE em.event_id = $1 AND u.deleted_at IS NULL
+		ORDER BY
+			CASE em.role WHEN 'host' THEN 0 WHEN 'co_host' THEN 1 ELSE 2 END,
+			COALESCE(p.full_name, u.username), u.username
+	`, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []MemberView
+	for rows.Next() {
+		var m MemberView
+		if err := rows.Scan(&m.UserID, &m.Username, &m.FullName, &m.Role, &m.IsCreator); err != nil {
+			return nil, err
+		}
+		list = append(list, m)
+	}
+	return list, rows.Err()
 }
 
 func (r *Repository) InvitationStats(ctx context.Context, eventID uuid.UUID) (accepted, pending, declined, total int, err error) {
@@ -801,7 +936,22 @@ func (s *Service) Create(ctx context.Context, e Event) (*Event, error) {
 	if e.Visibility != "public" && e.Visibility != "private" {
 		e.Visibility = "public"
 	}
+	n, err := s.repo.CountByCreator(ctx, e.CreatorID)
+	if err != nil {
+		return nil, err
+	}
+	if n >= MaxEventsPerCreator {
+		return nil, ErrEventLimit
+	}
 	return s.repo.Create(ctx, e)
+}
+
+func (s *Service) Delete(ctx context.Context, eventID, creatorID uuid.UUID) error {
+	return s.repo.DeleteByCreator(ctx, eventID, creatorID)
+}
+
+func (s *Service) CountByCreator(ctx context.Context, creatorID uuid.UUID) (int, error) {
+	return s.repo.CountByCreator(ctx, creatorID)
 }
 
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*Event, error) {
@@ -928,6 +1078,22 @@ func (s *Service) RejectJoin(ctx context.Context, eventID, reqID, hostID uuid.UU
 
 func (s *Service) SearchUsers(ctx context.Context, eventID, excludeUserID uuid.UUID, query string) ([]UserSearchResult, error) {
 	return s.repo.SearchUsers(ctx, eventID, excludeUserID, query, 10)
+}
+
+func (s *Service) SearchUsersGlobal(ctx context.Context, excludeUserID uuid.UUID, query string) ([]UserSearchResult, error) {
+	return s.repo.SearchUsersGlobal(ctx, excludeUserID, query, 10)
+}
+
+func (s *Service) ListMembers(ctx context.Context, eventID, viewerID uuid.UUID) ([]MemberView, error) {
+	sc, err := s.ShowContext(ctx, eventID, viewerID, 1, 1)
+	if err != nil {
+		return nil, err
+	}
+	// Public events: anyone can see the going list. Private: members/hosts/invitees only.
+	if sc.Event.Visibility == "private" && !sc.IsHost && !sc.IsMember && sc.MyInvitationID == nil {
+		return nil, ErrNotAuthorized
+	}
+	return s.repo.ListMembers(ctx, eventID)
 }
 
 func (s *Service) InviteUser(ctx context.Context, eventID, hostID, inviteeID uuid.UUID) (uuid.UUID, string, error) {

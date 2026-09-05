@@ -7,8 +7,10 @@ import type { EventSummary } from '../lib/events'
 export function EventsPage() {
   const [events, setEvents] = useState<EventSummary[]>([])
   const [hosted, setHosted] = useState<EventSummary[]>([])
+  const [createdCount, setCreatedCount] = useState(0)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const atCreateLimit = createdCount >= 2
 
   useEffect(() => {
     let cancelled = false
@@ -18,18 +20,23 @@ export function EventsPage() {
       try {
         const [all, mine] = await Promise.all([
           api.get<{ success: boolean; data: EventSummary[] }>('/api/v1/events'),
-          api.get<{ success: boolean; data: Array<{
-            id: string
-            title: string
-            location_name?: string
-            event_date?: string
-            member_count?: number
-            lat?: number
-            lng?: number
-          }> }>('/api/v1/events/hosted'),
+          api.get<{
+            success: boolean
+            data: Array<{
+              id: string
+              title: string
+              location_name?: string
+              event_date?: string
+              member_count?: number
+              lat?: number
+              lng?: number
+            }>
+            meta?: { created_count?: number; max_events?: number }
+          }>('/api/v1/events/hosted'),
         ])
         if (cancelled) return
         setEvents(all.data ?? [])
+        setCreatedCount(mine.meta?.created_count ?? 0)
         setHosted(
           (mine.data ?? []).map((e) => ({
             id: e.id,
@@ -65,13 +72,27 @@ export function EventsPage() {
             </Link>
             <h1 className="mt-2 text-2xl font-bold">Events</h1>
             <p className="text-sm text-slate-400">Meetups near you and gatherings you host</p>
+            {atCreateLimit && (
+              <p className="mt-1 text-xs text-amber-300/90">
+                You already host 2 events — delete one to create another.
+              </p>
+            )}
           </div>
-          <Link
-            to="/events/new"
-            className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-yellow-300"
-          >
-            <CalendarPlus size={16} /> Create
-          </Link>
+          {atCreateLimit ? (
+            <span
+              className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-bold text-slate-500"
+              title="Delete an existing event to create a new one"
+            >
+              <CalendarPlus size={16} /> Create
+            </span>
+          ) : (
+            <Link
+              to="/events/new"
+              className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-yellow-300"
+            >
+              <CalendarPlus size={16} /> Create
+            </Link>
+          )}
         </div>
 
         {error && (
@@ -104,9 +125,15 @@ export function EventsPage() {
               {events.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/15 bg-[#0b1224]/60 p-8 text-center">
                   <p className="text-slate-300">No published events yet.</p>
-                  <Link to="/events/new" className="mt-3 inline-block text-sm text-yellow-300 underline">
-                    Create the first one
-                  </Link>
+                  {atCreateLimit ? (
+                    <p className="mt-3 text-sm text-amber-300/90">
+                      You already host 2 events. Delete one to create another.
+                    </p>
+                  ) : (
+                    <Link to="/events/new" className="mt-3 inline-block text-sm text-yellow-300 underline">
+                      Create the first one
+                    </Link>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">

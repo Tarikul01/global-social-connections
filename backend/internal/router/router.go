@@ -109,11 +109,13 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 
 		// Public discovery
 		api.GET("/users/nearby", d.UserCtrl.GetNearbyJSON)
+		api.GET("/users/search", middleware.RequireAuthAPI(), d.EventCtrl.SearchUsersGlobalJSON)
 		api.GET("/users/:id", d.UserCtrl.GetByIDJSON)
 		api.GET("/professions", d.UserCtrl.ListProfessionsJSON)
 		api.GET("/stats", d.UserCtrl.StatsJSON)
 		api.GET("/profiles/:username", d.ProfileCtrl.PublicProfileJSON)
 		api.GET("/events/:id", d.EventCtrl.ShowJSON)
+		api.GET("/events/:id/members", d.EventCtrl.ListMembersJSON)
 		if d.StorageSvc != nil {
 			api.GET("/media/*filepath", d.StorageSvc.ServeMedia)
 		}
@@ -143,6 +145,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.POST("/events", d.EventCtrl.CreateJSON)
 			protected.GET("/events/hosted", d.EventCtrl.ListHostedJSON)
 			// GET /events/:id is public (share links) — see open API group above
+			protected.DELETE("/events/:id", d.EventCtrl.DeleteJSON)
 			protected.POST("/events/:id/join", d.EventCtrl.JoinJSON)
 			protected.POST("/events/:id/invite", d.EventCtrl.InviteJSON)
 			protected.POST("/events/:id/invitations/:invId/accept", d.EventCtrl.AcceptInvitationJSON)
@@ -150,6 +153,7 @@ func registerAPIv1(r *gin.Engine, d Deps) {
 			protected.POST("/events/:id/requests/:reqId/accept", d.EventCtrl.AcceptJoinJSON)
 			protected.POST("/events/:id/requests/:reqId/reject", d.EventCtrl.RejectJoinJSON)
 			protected.GET("/events/:id/map-members", d.EventCtrl.EventMapJSON)
+			protected.GET("/events/:id/users/search", d.EventCtrl.SearchUsersJSON)
 
 			protected.GET("/notifications", d.NotifCtrl.ListJSON)
 			protected.POST("/notifications/:id/read", d.NotifCtrl.MarkReadJSON)

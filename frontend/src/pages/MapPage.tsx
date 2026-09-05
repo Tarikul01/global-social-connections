@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { Filter, LocateFixed, MapPin, Minus, Plus, Radio, Users, X } from 'lucide-react'
@@ -153,8 +153,16 @@ function MapControls({
   )
 }
 
+const eventPinIcon = L.divIcon({
+  className: 'leaflet-div-icon',
+  html: `<div style="width:22px;height:22px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#facc15;border:3px solid #0b1224;box-shadow:0 2px 10px rgba(0,0,0,.5)"></div>`,
+  iconSize: [22, 22],
+  iconAnchor: [11, 22],
+})
+
 export function MapPage() {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
   const loggedIn = !!user
   const [panelOpen, setPanelOpen] = useState(false)
   const [selected, setSelected] = useState<NearbyUser | null>(null)
@@ -170,6 +178,13 @@ export function MapPage() {
   const [zoom, setZoom] = useState(12)
   const [viewTick, setViewTick] = useState(0)
   const [mapReady, setMapReady] = useState(false)
+  const [eventFocus, setEventFocus] = useState<{
+    lat: number
+    lng: number
+    id?: string
+    label?: string
+  } | null>(null)
+  const focusAppliedRef = useRef(false)
   const [socketOk, setSocketOk] = useState(false)
   const [liveOn, setLiveOn] = useState(false)
   const [liveBusy, setLiveBusy] = useState(false)
@@ -250,11 +265,37 @@ export function MapPage() {
       .catch(() => {})
   }, [])
 
+  // Focus map on event pin when opened via ?lat=&lng=&event=&label=
+  useEffect(() => {
+    const lat = Number(searchParams.get('lat'))
+    const lng = Number(searchParams.get('lng'))
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setEventFocus(null)
+      focusAppliedRef.current = false
+      return
+    }
+    const z = Number(searchParams.get('zoom'))
+    const zoomTo = Number.isFinite(z) && z > 0 ? z : 15
+    setEventFocus({
+      lat,
+      lng,
+      id: searchParams.get('event') || undefined,
+      label: searchParams.get('label') || undefined,
+    })
+    setCenter([lat, lng])
+    setZoom(zoomTo)
+    setViewTick((t) => t + 1)
+    focusAppliedRef.current = true
+  }, [searchParams])
+
   useEffect(() => {
     if (!user) return
+    // Don't override an explicit event focus from the URL.
+    if (focusAppliedRef.current) return
     api
       .get<{ success: boolean; data: { lat?: number; lng?: number } }>('/api/v1/me/profile')
       .then((r) => {
+        if (focusAppliedRef.current) return
         if (typeof r.data?.lat === 'number' && typeof r.data?.lng === 'number') {
           setCenter([r.data.lat, r.data.lng])
           setZoom(14)
@@ -267,12 +308,14 @@ export function MapPage() {
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        if (focusAppliedRef.current) return
         void api
           .post('/api/v1/me/location', {
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
           })
           .then(() => {
+            if (focusAppliedRef.current) return
             setCenter([pos.coords.latitude, pos.coords.longitude])
             setZoom(14)
             setViewTick((t) => t + 1)
@@ -518,6 +561,12 @@ export function MapPage() {
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen((v) => !v)}
           onLocate={() => {
+            if (eventFocus) {
+              setCenter([eventFocus.lat, eventFocus.lng])
+              setZoom(15)
+              setViewTick((t) => t + 1)
+              return
+            }
             const me = users.find((u) => u.is_me)
             if (me) {
               setCenter([me.lat, me.lng])
@@ -526,6 +575,25 @@ export function MapPage() {
             }
           }}
         />
+        {eventFocus && (
+          <Marker position={[eventFocus.lat, eventFocus.lng]} icon={eventPinIcon}>
+            <Popup>
+              <div className="min-w-[140px] text-sm">
+                <div className="font-semibold text-slate-900">
+                  {eventFocus.label || 'Event location'}
+                </div>
+                {eventFocus.id && (
+                  <Link
+                    to={`/e/${eventFocus.id}`}
+                    className="mt-1 inline-block text-blue-600 underline"
+                  >
+                    Open event
+                  </Link>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        )}
         {markers}
       </MapContainer>
 

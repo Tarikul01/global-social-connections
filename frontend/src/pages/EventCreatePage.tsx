@@ -1,10 +1,13 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../lib/api'
 import type { EventSummary } from '../lib/events'
+import { EventLocationPicker } from '../components/EventLocationPicker'
+import { UserInviteSuggest, type SuggestUser } from '../components/UserInviteSuggest'
 
 const DEFAULT_LAT = 23.8103
 const DEFAULT_LNG = 90.4125
+const MAX_EVENTS = 2
 
 export function EventCreatePage() {
   const navigate = useNavigate()
@@ -18,9 +21,19 @@ export function EventCreatePage() {
   const [lng, setLng] = useState(DEFAULT_LNG)
   const [maxParticipants, setMaxParticipants] = useState(20)
   const [visibility, setVisibility] = useState<'public' | 'private'>('public')
-  const [inviteUsernames, setInviteUsernames] = useState('')
+  const [invitees, setInvitees] = useState<SuggestUser[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [atLimit, setAtLimit] = useState(false)
+
+  useEffect(() => {
+    void api
+      .get<{ success: boolean; meta?: { created_count?: number } }>('/api/v1/events/hosted')
+      .then((r) => {
+        if ((r.meta?.created_count ?? 0) >= MAX_EVENTS) setAtLimit(true)
+      })
+      .catch(() => {})
+  }, [])
 
   const useMyLocation = () => {
     if (!navigator.geolocation) {
@@ -31,6 +44,7 @@ export function EventCreatePage() {
       (pos) => {
         setLat(Number(pos.coords.latitude.toFixed(6)))
         setLng(Number(pos.coords.longitude.toFixed(6)))
+        setError('')
       },
       () => setError('Could not read your location'),
       { enableHighAccuracy: true, timeout: 10000 },
@@ -42,6 +56,7 @@ export function EventCreatePage() {
     setError('')
     setBusy(true)
     try {
+      const invite_usernames = invitees.map((u) => u.username).join(', ')
       const res = await api.post<{ success: boolean; data: EventSummary }>('/api/v1/events', {
         title,
         description,
@@ -53,7 +68,7 @@ export function EventCreatePage() {
         lng,
         max_participants: maxParticipants,
         visibility,
-        invite_usernames: inviteUsernames,
+        invite_usernames,
       })
       navigate(`/e/${res.data.id}`, { replace: true })
     } catch (err) {
@@ -72,7 +87,17 @@ export function EventCreatePage() {
         <div>
           <h1 className="text-2xl font-bold">Create event</h1>
           <p className="text-sm text-slate-400">Pick a title, time, and meetup spot.</p>
+          <p className="mt-1 text-xs text-slate-500">You can host up to 2 events at a time.</p>
         </div>
+
+        {atLimit && (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            You already have 2 events. Delete one from the event page before creating another.{' '}
+            <Link to="/events" className="underline">
+              Back to events
+            </Link>
+          </div>
+        )}
 
         {error && (
           <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -145,37 +170,15 @@ export function EventCreatePage() {
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block text-sm">
-            <span className="mb-1 block text-slate-300">Latitude</span>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lat}
-              onChange={(e) => setLat(Number(e.target.value))}
-              className="w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-2.5 outline-none focus:border-yellow-400"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block text-slate-300">Longitude</span>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lng}
-              onChange={(e) => setLng(Number(e.target.value))}
-              className="w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-2.5 outline-none focus:border-yellow-400"
-            />
-          </label>
-        </div>
-        <button
-          type="button"
-          onClick={useMyLocation}
-          className="text-sm text-blue-300 underline"
-        >
-          Use my current location
-        </button>
+        <EventLocationPicker
+          lat={lat}
+          lng={lng}
+          onChange={(a, b) => {
+            setLat(a)
+            setLng(b)
+          }}
+          onUseMyLocation={useMyLocation}
+        />
 
         <label className="block text-sm">
           <span className="mb-1 block text-slate-300">Max participants</span>
@@ -214,22 +217,22 @@ export function EventCreatePage() {
           </label>
         </fieldset>
 
-        <label className="block text-sm">
+        <div className="text-sm">
           <span className="mb-1 block text-slate-300">Invite people (optional)</span>
-          <input
-            value={inviteUsernames}
-            onChange={(e) => setInviteUsernames(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-[#111827] px-3 py-2.5 outline-none focus:border-yellow-400"
-            placeholder="username1, username2"
+          <UserInviteSuggest
+            searchPath="/api/v1/users/search"
+            selected={invitees}
+            onChange={setInvitees}
+            placeholder="Type username, email, or name"
           />
-        </label>
+        </div>
 
         <button
           type="submit"
-          disabled={busy}
+          disabled={busy || atLimit}
           className="w-full rounded-xl bg-yellow-400 py-2.5 text-sm font-bold text-slate-900 hover:bg-yellow-300 disabled:opacity-60"
         >
-          {busy ? 'Creating…' : 'Create event'}
+          {busy ? 'Creating…' : atLimit ? 'Limit reached' : 'Create event'}
         </button>
       </form>
     </div>

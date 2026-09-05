@@ -1,20 +1,34 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { MapPin, Users } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../auth/AuthContext'
 import type { EventDetail } from '../lib/events'
 import { EventShareBar, eventShareUrl } from '../components/EventShareBar'
+import { UserInviteSuggest, type SuggestUser } from '../components/UserInviteSuggest'
+
+type EventMember = {
+  user_id: string
+  username: string
+  full_name?: string
+  role: string
+  is_creator: boolean
+}
 
 export function EventDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const [inviteUser, setInviteUser] = useState('')
   const [joinMsg, setJoinMsg] = useState('')
+  const [showMembers, setShowMembers] = useState(false)
+  const [members, setMembers] = useState<EventMember[] | null>(null)
+  const [membersError, setMembersError] = useState('')
+  const [invitePick, setInvitePick] = useState<SuggestUser[]>([])
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -37,6 +51,24 @@ export function EventDetailPage() {
     }
   }, [load])
 
+  const loadMembers = useCallback(async () => {
+    if (!id) return
+    setMembersError('')
+    try {
+      const res = await api.get<{ success: boolean; data: EventMember[] }>(
+        `/api/v1/events/${id}/members`,
+      )
+      setMembers(res.data || [])
+    } catch (e) {
+      setMembersError(e instanceof Error ? e.message : 'Could not load members')
+      setMembers([])
+    }
+  }, [id])
+
+  useEffect(() => {
+    if (showMembers) void loadMembers()
+  }, [showMembers, loadMembers])
+
   const act = async (fn: () => Promise<unknown>, okMsg: string) => {
     setBusy(true)
     setError('')
@@ -45,6 +77,7 @@ export function EventDetailPage() {
       await fn()
       setMessage(okMsg)
       await load()
+      if (showMembers) await loadMembers()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -72,6 +105,10 @@ export function EventDetailPage() {
   const timeRange = [e.start_time, e.end_time].filter(Boolean).join(' – ')
   const shareUrl = detail.share_url || e.share_url || eventShareUrl(e.id)
   const canShare = detail.is_host || detail.is_creator || e.visibility === 'public'
+  const mapHref =
+    e.lat != null && e.lng != null
+      ? `/?lat=${e.lat}&lng=${e.lng}&zoom=15&event=${encodeURIComponent(e.id)}&label=${encodeURIComponent(e.title)}`
+      : null
 
   if (detail.login_required || detail.private) {
     return (
@@ -135,12 +172,63 @@ export function EventDetailPage() {
             <Users size={14} /> {e.member_count ?? 0}
             {e.max_participants ? ` / ${e.max_participants}` : ''} going
           </span>
-          {e.lat != null && e.lng != null && (
+          {e.location_name && (
             <span className="inline-flex items-center gap-1">
-              <MapPin size={14} /> {e.lat.toFixed(4)}, {e.lng.toFixed(4)}
+              <MapPin size={14} /> {e.location_name}
             </span>
           )}
         </p>
+
+        <div className="flex flex-wrap gap-2">
+          {mapHref ? (
+            <Link
+              to={mapHref}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-blue-500/40 bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-200 hover:bg-blue-500/20"
+            >
+              <MapPin size={14} /> Discover event on map
+            </Link>
+          ) : (
+            <span className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-500">
+              No map location set
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowMembers((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-white/10"
+          >
+            <Users size={14} /> {showMembers ? 'Hide user list' : 'Show user list'}
+          </button>
+        </div>
+
+        {showMembers && (
+          <section className="space-y-2 rounded-xl border border-white/10 bg-[#111827] p-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Going ({members?.length ?? '…'})
+            </h2>
+            {membersError && <p className="text-sm text-red-300">{membersError}</p>}
+            {!members && !membersError && (
+              <p className="text-sm text-slate-500">Loading…</p>
+            )}
+            {members && members.length === 0 && (
+              <p className="text-sm text-slate-500">No one has joined yet.</p>
+            )}
+            {members && members.length > 0 && (
+              <ul className="space-y-1.5">
+                {members.map((m) => (
+                  <li key={m.user_id} className="text-sm text-slate-300">
+                    {m.full_name || m.username}{' '}
+                    <span className="text-slate-500">@{m.username}</span>
+                    <span className="ml-1 text-xs text-slate-500">· {m.role}</span>
+                    {m.is_creator && (
+                      <span className="ml-1 text-xs text-yellow-400/80">· creator</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         {canShare && <EventShareBar shareUrl={shareUrl} title={e.title} />}
 
@@ -242,31 +330,27 @@ export function EventDetailPage() {
         {detail.is_host && (
           <section className="space-y-3 border-t border-white/10 pt-4">
             <h2 className="text-sm font-semibold text-white">Host tools</h2>
-            <form
-              className="flex gap-2"
-              onSubmit={(ev: FormEvent) => {
-                ev.preventDefault()
-                if (!inviteUser.trim()) return
-                void act(
-                  () => api.post(`/api/v1/events/${e.id}/invite`, { username: inviteUser.trim() }),
-                  `Invited @${inviteUser.trim()}`,
-                ).then(() => setInviteUser(''))
-              }}
-            >
-              <input
-                value={inviteUser}
-                onChange={(ev) => setInviteUser(ev.target.value)}
-                placeholder="Invite by username"
-                className="flex-1 rounded-xl border border-white/10 bg-[#111827] px-3 py-2 text-sm outline-none focus:border-yellow-400"
-              />
-              <button
-                type="submit"
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500">Invite by username, email, or name</p>
+              <UserInviteSuggest
+                searchPath={`/api/v1/events/${e.id}/users/search`}
+                selected={invitePick}
+                onChange={setInvitePick}
+                single
                 disabled={busy}
-                className="rounded-xl border border-white/15 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-              >
-                Invite
-              </button>
-            </form>
+                onPickSingle={(u) => {
+                  void act(
+                    () =>
+                      api.post(`/api/v1/events/${e.id}/invite`, {
+                        username: u.username,
+                        query: u.email || u.username,
+                      }),
+                    `Invited @${u.username}`,
+                  )
+                }}
+                placeholder="Type username, email, or name"
+              />
+            </div>
 
             {detail.pending_join_requests?.length > 0 && (
               <div className="space-y-2">
@@ -315,6 +399,59 @@ export function EventDetailPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {detail.is_creator && (
+          <section className="space-y-3 border-t border-red-500/20 pt-4">
+            <h2 className="text-sm font-semibold text-red-200">Danger zone</h2>
+            <p className="text-xs text-slate-500">
+              Deleting removes this event and everyone on the going list, invites, and join
+              requests. This cannot be undone.
+            </p>
+            {!confirmDelete ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmDelete(true)}
+                className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 hover:bg-red-500/20 disabled:opacity-60"
+              >
+                Delete event
+              </button>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    void (async () => {
+                      setBusy(true)
+                      setError('')
+                      try {
+                        await api.delete(`/api/v1/events/${e.id}`)
+                        navigate('/events', { replace: true })
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Delete failed')
+                        setConfirmDelete(false)
+                      } finally {
+                        setBusy(false)
+                      }
+                    })()
+                  }}
+                  className="rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white hover:bg-red-400 disabled:opacity-60"
+                >
+                  {busy ? 'Deleting…' : 'Yes, delete forever'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(false)}
+                  className="rounded-xl border border-white/15 px-4 py-2 text-sm text-slate-200 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
               </div>
             )}
           </section>
