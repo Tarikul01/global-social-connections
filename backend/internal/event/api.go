@@ -41,7 +41,7 @@ func trimTime(t string) string {
 	return t
 }
 
-func showContextJSON(sc *ShowContext) gin.H {
+func showContextJSON(sc *ShowContext, shareURL string) gin.H {
 	invID := ""
 	if sc.MyInvitationID != nil {
 		invID = sc.MyInvitationID.String()
@@ -66,19 +66,30 @@ func showContextJSON(sc *ShowContext) gin.H {
 			"is_creator": h.IsCreator,
 		})
 	}
+	ev := eventJSON(sc.Event)
+	ev["share_url"] = shareURL
 	return gin.H{
-		"event":                eventJSON(sc.Event),
-		"is_creator":           sc.IsCreator,
-		"is_host":              sc.IsHost,
-		"is_member":            sc.IsMember,
-		"has_pending_join":     sc.HasPendingJoin,
-		"my_invitation_id":     invID,
+		"event":                 ev,
+		"share_url":             shareURL,
+		"is_creator":            sc.IsCreator,
+		"is_host":               sc.IsHost,
+		"is_member":             sc.IsMember,
+		"has_pending_join":      sc.HasPendingJoin,
+		"my_invitation_id":      invID,
 		"pending_join_requests": requests,
-		"hosts":                hosts,
-		"accepted_invites":     sc.AcceptedInvites,
-		"pending_invites":      sc.PendingInvites,
-		"total_invites":        sc.TotalInvites,
+		"hosts":                 hosts,
+		"accepted_invites":      sc.AcceptedInvites,
+		"pending_invites":       sc.PendingInvites,
+		"total_invites":         sc.TotalInvites,
 	}
+}
+
+func (ctrl *Controller) eventShareURL(id uuid.UUID) string {
+	base := strings.TrimRight(ctrl.cfg.AppURL, "/")
+	if base == "" {
+		base = "https://global-social-connections.vercel.app"
+	}
+	return base + "/e/" + id.String()
 }
 
 // ListJSON returns published events for the discover list.
@@ -171,10 +182,14 @@ func (ctrl *Controller) CreateJSON(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"success": true, "data": eventJSON(*created)})
+	data := eventJSON(*created)
+	data["share_url"] = ctrl.eventShareURL(created.ID)
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": data})
 }
 
 // ShowJSON returns event detail + viewer membership context.
+// Public: works without login for public events. Private events require auth
+// (or return a limited preview asking to log in).
 func (ctrl *Controller) ShowJSON(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -190,7 +205,37 @@ func (ctrl *Controller) ShowJSON(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "event not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": showContextJSON(sc)})
+
+	shareURL := ctrl.eventShareURL(id)
+
+	// Private event: only hosts, members, or pending invitees see full details.
+	if sc.Event.Visibility == "private" && !sc.IsHost && !sc.IsMember && sc.MyInvitationID == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"event": gin.H{
+					"id":               sc.Event.ID,
+					"title":            sc.Event.Title,
+					"event_date":       sc.Event.EventDate.Format("2006-01-02"),
+					"event_date_label": sc.Event.EventDate.Format("Jan 2, 2006"),
+					"visibility":       "private",
+					"share_url":        shareURL,
+				},
+				"share_url":              shareURL,
+				"private":                true,
+				"login_required":         viewerID == uuid.Nil,
+				"is_creator":             false,
+				"is_host":                false,
+				"is_member":              false,
+				"has_pending_join":       false,
+				"pending_join_requests":  []any{},
+				"hosts":                  []any{},
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": showContextJSON(sc, shareURL)})
 }
 
 // JoinJSON requests to join a public event.

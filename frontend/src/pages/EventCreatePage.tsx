@@ -55,7 +55,7 @@ export function EventCreatePage() {
         visibility,
         invite_usernames: inviteUsernames,
       })
-      navigate(`/events/${res.data.id}`, { replace: true })
+      navigate(`/e/${res.data.id}`, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed')
     } finally {

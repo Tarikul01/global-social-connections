@@ -26,13 +26,16 @@ export function SideNav({ open, onClose }: Props) {
 
   return (
     <>
+      {/* Mobile backdrop */}
       <div
-        className={`fixed inset-0 z-[1100] bg-black/50 transition ${open ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        className={`fixed inset-0 z-[1100] bg-black/50 transition lg:hidden ${
+          open ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
         onClick={onClose}
         aria-hidden={!open}
       />
       <aside
-        className={`fixed left-0 top-0 z-[1101] flex h-full w-72 flex-col border-r border-white/10 bg-[#0b1224] transition-transform ${
+        className={`fixed left-0 top-0 z-[1101] flex h-full w-72 flex-col border-r border-white/10 bg-[#0b1224] transition-transform lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -49,7 +52,7 @@ export function SideNav({ open, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20"
+            className="rounded-full bg-white/10 p-1.5 text-white hover:bg-white/20 lg:hidden"
             aria-label="Close menu"
           >
             <X size={16} />
@@ -75,7 +78,14 @@ export function SideNav({ open, onClose }: Props) {
                 <Bell size={18} /> Notifications
               </NavLink>
               <NavLink to="/profile" className={linkClass} onClick={onClose}>
-                <UserAvatar name={user.username} size={22} fontSize={9} online showDot={false} className="!border-2" />
+                <UserAvatar
+                  name={user.username}
+                  size={22}
+                  fontSize={9}
+                  online
+                  showDot={false}
+                  className="!border-2"
+                />
                 @{user.username}
               </NavLink>
               <button

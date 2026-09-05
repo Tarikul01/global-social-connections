@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { Filter, LocateFixed, MapPin, Menu, Minus, Plus, Radio, Users, X } from 'lucide-react'
+import { Filter, LocateFixed, MapPin, Minus, Plus, Radio, Users, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { api, type NearbyUser, type Profession } from '../lib/api'
-import { SideNav } from '../components/SideNav'
 import { Recenter } from '../components/Recenter'
 import { useMapSocket } from '../hooks/useMapSocket'
 import { UserAvatar } from '../components/UserAvatar'
@@ -157,7 +156,6 @@ function MapControls({
 export function MapPage() {
   const { user } = useAuth()
   const loggedIn = !!user
-  const [navOpen, setNavOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [selected, setSelected] = useState<NearbyUser | null>(null)
   const [users, setUsers] = useState<NearbyUser[]>([])
@@ -418,18 +416,7 @@ export function MapPage() {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <SideNav open={navOpen} onClose={() => setNavOpen(false)} />
-
-      <button
-        type="button"
-        className="absolute left-3 top-3 z-[1000] flex h-10 w-10 items-center justify-center rounded-full bg-[#0b1224] text-white shadow-lg ring-1 ring-white/15"
-        onClick={() => setNavOpen(true)}
-        title="Menu"
-      >
-        <Menu size={18} />
-      </button>
-
-      <div className="absolute left-1/2 top-3 z-[1000] flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#0b1224]/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
+      <div className="absolute left-1/2 top-3 z-[1000] flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#0b1224]/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur lg:left-[calc(50%+9rem)]">
         <span
           className={`h-2 w-2 rounded-full ${socketOk ? 'bg-emerald-400' : 'bg-slate-500'}`}
           title={socketOk ? 'Realtime connected' : 'Connecting…'}

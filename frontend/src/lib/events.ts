@@ -16,6 +16,7 @@ export type EventSummary = {
   status?: string
   live_location_enabled?: boolean
   member_count: number
+  share_url?: string
 }
 
 export type JoinRequest = {
@@ -36,6 +37,9 @@ export type EventHost = {
 
 export type EventDetail = {
   event: EventSummary
+  share_url?: string
+  private?: boolean
+  login_required?: boolean
   is_creator: boolean
   is_host: boolean
   is_member: boolean

@@ -128,7 +128,7 @@ function EventCard({ event }: { event: EventSummary }) {
   const time = event.start_time ? ` · ${event.start_time}` : ''
   return (
     <Link
-      to={`/events/${event.id}`}
+      to={`/e/${event.id}`}
       className="block rounded-2xl border border-white/10 bg-[#0b1224] p-4 transition hover:border-yellow-400/40"
     >
       <div className="flex items-start justify-between gap-3">

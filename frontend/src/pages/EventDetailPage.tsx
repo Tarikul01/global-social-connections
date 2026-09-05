@@ -2,10 +2,13 @@ import { Link, useParams } from 'react-router-dom'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { MapPin, Users } from 'lucide-react'
 import { api } from '../lib/api'
+import { useAuth } from '../auth/AuthContext'
 import type { EventDetail } from '../lib/events'
+import { EventShareBar, eventShareUrl } from '../components/EventShareBar'
 
 export function EventDetailPage() {
   const { id } = useParams()
+  const { user } = useAuth()
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -19,6 +22,8 @@ export function EventDetailPage() {
     try {
       const res = await api.get<{ success: boolean; data: EventDetail }>(`/api/v1/events/${id}`)
       setDetail(res.data)
+      const title = res.data?.event?.title
+      if (title) document.title = `${title} · FindNeighbour`
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load event')
       setDetail(null)
@@ -27,6 +32,9 @@ export function EventDetailPage() {
 
   useEffect(() => {
     void load()
+    return () => {
+      document.title = 'FindNeighbour · Global Social Connections'
+    }
   }, [load])
 
   const act = async (fn: () => Promise<unknown>, okMsg: string) => {
@@ -62,6 +70,37 @@ export function EventDetailPage() {
   const e = detail.event
   const when = e.event_date_label || e.event_date
   const timeRange = [e.start_time, e.end_time].filter(Boolean).join(' – ')
+  const shareUrl = detail.share_url || e.share_url || eventShareUrl(e.id)
+  const canShare = detail.is_host || detail.is_creator || e.visibility === 'public'
+
+  if (detail.login_required || detail.private) {
+    return (
+      <div className="min-h-full bg-[radial-gradient(900px_500px_at_90%_0%,rgba(250,204,21,0.08),transparent_50%),#050816] px-4 py-8">
+        <div className="mx-auto max-w-lg space-y-4 rounded-2xl border border-white/10 bg-[#0b1224] p-6">
+          <Link to="/events" className="text-sm text-blue-300 underline">
+            ← Events
+          </Link>
+          <h1 className="text-2xl font-bold">{e.title}</h1>
+          <p className="text-sm text-amber-200">This is a private invite-only event.</p>
+          <p className="text-sm text-slate-400">
+            {when}
+            {e.location_name ? ` · ${e.location_name}` : ''}
+          </p>
+          <Link
+            to={`/login?next=${encodeURIComponent(`/e/${e.id}`)}`}
+            className="inline-flex rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-900"
+          >
+            Log in to view &amp; join
+          </Link>
+          {user && (
+            <p className="text-xs text-slate-500">
+              You&apos;re logged in but need an invitation to see this private event.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-full bg-[radial-gradient(900px_500px_at_90%_0%,rgba(250,204,21,0.08),transparent_50%),#050816] px-4 py-8">
@@ -93,7 +132,7 @@ export function EventDetailPage() {
 
         <p className="flex flex-wrap gap-4 text-sm text-slate-400">
           <span className="inline-flex items-center gap-1">
-            <Users size={14} /> {e.member_count}
+            <Users size={14} /> {e.member_count ?? 0}
             {e.max_participants ? ` / ${e.max_participants}` : ''} going
           </span>
           {e.lat != null && e.lng != null && (
@@ -102,6 +141,8 @@ export function EventDetailPage() {
             </span>
           )}
         </p>
+
+        {canShare && <EventShareBar shareUrl={shareUrl} title={e.title} />}
 
         {error && (
           <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -115,6 +156,14 @@ export function EventDetailPage() {
         )}
 
         <div className="flex flex-wrap gap-2 border-t border-white/10 pt-4">
+          {!user && e.visibility === 'public' && (
+            <Link
+              to={`/login?next=${encodeURIComponent(`/e/${e.id}`)}`}
+              className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-slate-900"
+            >
+              Log in to join
+            </Link>
+          )}
           {detail.is_member && (
             <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
               You&apos;re going
@@ -157,7 +206,8 @@ export function EventDetailPage() {
               </button>
             </>
           )}
-          {!detail.is_member &&
+          {user &&
+            !detail.is_member &&
             !detail.has_pending_join &&
             !detail.my_invitation_id &&
             e.visibility === 'public' &&

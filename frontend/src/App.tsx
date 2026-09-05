@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
+import { AppShell } from './components/AppShell'
 import { MapPage } from './pages/MapPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -40,67 +41,66 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<GuestOrMap />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/u/:username" element={<ProfilePage />} />
-          <Route
-            path="/profile"
-            element={
-              <Protected>
-                <ProfilePage />
-              </Protected>
-            }
-          />
-          <Route
-            path="/events"
-            element={
-              <Protected>
-                <EventsPage />
-              </Protected>
-            }
-          />
-          <Route
-            path="/events/new"
-            element={
-              <Protected>
-                <EventCreatePage />
-              </Protected>
-            }
-          />
-          <Route
-            path="/events/:id"
-            element={
-              <Protected>
-                <EventDetailPage />
-              </Protected>
-            }
-          />
-          <Route
-            path="/messages"
-            element={
-              <Protected>
-                <PlaceholderPage title="Messages" />
-              </Protected>
-            }
-          />
-          <Route
-            path="/connections"
-            element={
-              <Protected>
-                <PlaceholderPage title="Connections" />
-              </Protected>
-            }
-          />
-          <Route
-            path="/notifications"
-            element={
-              <Protected>
-                <PlaceholderPage title="Notifications" />
-              </Protected>
-            }
-          />
+
+          <Route element={<AppShell />}>
+            <Route path="/" element={<GuestOrMap />} />
+            <Route path="/u/:username" element={<ProfilePage />} />
+            {/* Public share links — unique per event */}
+            <Route path="/e/:id" element={<EventDetailPage />} />
+            <Route path="/events/:id" element={<EventDetailPage />} />
+            <Route
+              path="/profile"
+              element={
+                <Protected>
+                  <ProfilePage />
+                </Protected>
+              }
+            />
+            <Route
+              path="/events"
+              element={
+                <Protected>
+                  <EventsPage />
+                </Protected>
+              }
+            />
+            <Route
+              path="/events/new"
+              element={
+                <Protected>
+                  <EventCreatePage />
+                </Protected>
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <Protected>
+                  <PlaceholderPage title="Messages" />
+                </Protected>
+              }
+            />
+            <Route
+              path="/connections"
+              element={
+                <Protected>
+                  <PlaceholderPage title="Connections" />
+                </Protected>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <Protected>
+                  <PlaceholderPage title="Notifications" />
+                </Protected>
+              }
+            />
+          </Route>
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
